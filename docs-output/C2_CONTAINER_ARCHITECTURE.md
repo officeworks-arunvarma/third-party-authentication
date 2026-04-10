@@ -8,217 +8,205 @@ This document describes the individual containers (applications, services, and l
 
 ## Container Diagram
 
+```plantuml
+@startuml C2_Container
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+LAYOUT_WITH_LEGEND()
+
+title C2 Container Diagram — Officeworks TrustedAuth System
+
+Person_Ext(customer, "Customer", "End user authenticating\nthrough a partner app")
+Person_Ext(admin, "Web Wizards Admin", "Manages trusted party\ncredentials")
+
+System_Boundary(client_side, "Client Integration Layer (NPM/CDN)") {
+    Container(browser_client, "trustedauth-client", "JavaScript (ES5)", "Custom <ow-auth> HTML element, iframe-based auth UI, window.postMessage. Served from S3/CDN.")
+    Container(tank, "trustedauth-node-client (TANK)", "Node.js", "Server-side client library. Handles HMAC-SHA512 signing, OTT→OWT exchange, Express middleware.")
+    Container(taras, "trustedauth-react-redux (TARAS)", "React + Redux", "OWAuth component, Redux middleware/reducer for auth state management.")
+}
+
+System_Boundary(ow_auth, "Officeworks TrustedAuth System [DEPRECATED Jan 2026]") {
+    Container(trustedauth_app, "trustedauth-app", "Express.js + Handlebars", "OAuth-like authorization server UI. Renders login, register, guest forms. Handles OAuth callback redirects. Port 3001/3003.")
+    Container(trustedauth_service, "trustedauth-service", "Express.js + Node.js", "Core backend API. Token generation, HMAC-SHA512 validation, trusted party management, DynamoDB operations. Port 3002.")
+    Container(trustedauth_profile, "trustedauth-profile", "Express.js + Node.js", "Customer profile endpoint. Validates OWT, fetches profile from upstream API. Port 3004.")
+    Container(user_auth_service, "user-auth-service", "Express.js + TypeScript", "Main user auth backend. AWS Cognito integration, credential validation, session management. Port 3000.")
+}
+
+ContainerDb(dynamodb, "AWS DynamoDB", "NoSQL", "TrustedParty_Api\nTrustedParty_Tokens\nTrustedParty_UserToken")
+ContainerDb(cognito, "AWS Cognito", "Identity", "User pools, MFA,\ncredential validation")
+ContainerDb(s3, "AWS S3", "Object Store", "authclient.min.js CDN\ndistribution")
+
+' External relationships
+Rel(customer, browser_client, "Interacts with login UI via", "iframe in browser")
+Rel(admin, trustedauth_service, "Manages trusted parties", "HTTPS + X-OW-ADMIN-KEY")
+
+' Client lib to server
+Rel(browser_client, trustedauth_app, "Loads login UI into iframe", "HTTPS")
+Rel(tank, trustedauth_service, "Exchanges OTT for OWT\nValidates tokens", "HTTPS + HMAC-SHA512")
+Rel(tank, trustedauth_profile, "Fetches user profile", "HTTPS")
+Rel(taras, trustedauth_app, "Renders iframe auth UI", "HTTPS")
+
+' Internal service calls
+Rel(trustedauth_app, trustedauth_service, "Requests token generation\nafter credential validation", "HTTP :3002")
+Rel(trustedauth_app, user_auth_service, "Validates user credentials", "HTTP :3000")
+Rel(trustedauth_service, user_auth_service, "Validates credentials,\nfetches auth tokens", "HTTP :3000")
+Rel(trustedauth_profile, user_auth_service, "Fetches upstream user profile", "HTTP :3000")
+
+' Infrastructure
+Rel(trustedauth_service, dynamodb, "Reads/writes tokens\nand party config", "AWS SDK v3")
+Rel(user_auth_service, cognito, "User pool operations", "AWS SDK")
+Rel(browser_client, s3, "Served from", "HTTPS CDN")
+
+@enduml
 ```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                         External Applications                                │
-│                    (Third-Party Integration Clients)                          │
-├──────────────────────────────────────────────────────────────────────────────┤
-│                                                                               │
-│  ┌────────────────────────┐   ┌────────────────────────┐   ┌─────────────┐  │
-│  │   Browser Client       │   │   Node.js Backend      │   │ React Redux │  │
-│  │ (trustedauth-client)   │   │   (TANK Client)        │   │   (TARAS)   │  │
-│  │                        │   │                        │   │             │  │
-│  │ - authclient.min.js   │   │ - @ow/trustedauth-     │   │ - OWAuth    │  │
-│  │ - <ow-auth> element   │   │   node-client          │   │ - Middleware│  │
-│  │ - iframe-based auth   │   │ - Client class         │   │ - Reducer   │  │
-│  │ - postMessage comm    │   │ - expressMiddleware    │   │ - Components│  │
-│  │ - CDN: S3             │   │ - Request signing      │   │             │  │
-│  └───────────┬───────────┘   └───────────┬────────────┘   └──────┬──────┘  │
-│              │                           │                       │          │
-└──────────────┼───────────────────────────┼───────────────────────┼──────────┘
-               │                           │                       │
-               │ HTTP/HTTPS                │ HTTP/HTTPS            │
-               │ Signed requests           │ with signatures       │
-               │ (HMAC-SHA512)             │ (HMAC-SHA512)         │ HTTPS
-               │                           │                       │
-┌──────────────▼───────────────────────────▼───────────────────────▼──────────┐
-│                    Officeworks TrustedAuth System                            │
-│                                                                               │
-│ ╔═════════════════════════════════════════════════════════════════════════╗ │
-│ ║                      1. trustedauth-app                                  ║ │
-│ ║                   (OAuth Authorization Server UI)                        ║ │
-│ ║──────────────────────────────────────────────────────────────────────────║ │
-│ ║ Technology: Express.js + Handlebars templates                            ║ │
-│ ║ Port: 3001                                                               ║ │
-│ ║ Host: AWS Elastic Beanstalk                                              ║ │
-│ ║ Main Responsibility: OAuth-like authorization flow & user interface      ║ │
-│ ║                                                                           ║ │
-│ ║ Key Routes:                                                              ║ │
-│ ║  - GET /auth/login              - Login form & flow                      ║ │
-│ ║  - GET /auth/register           - Registration form                      ║ │
-│ ║  - GET /auth/authorise          - OAuth authorization endpoint           ║ │
-│ ║  - GET /auth/guest              - Guest token request flow               ║ │
-│ ║                                                                           ║ │
-│ ║ Dependencies:                                                            ║ │
-│ ║  - User Auth Service (for user validation)                              ║ │
-│ ║  - TrustedAuth Service (for token generation)                           ║ │
-│ ║  - AWS Cognito (for credential validation)                             ║ │
-│ ║                                                                           ║ │
-│ ║ Responsibilities:                                                        ║ │
-│ ║  1. Render authentication UI (login, register, guest)                   ║ │
-│ ║  2. Validate user input                                                  ║ │
-│ ║  3. Coordinate with user-auth-service for credential validation         ║ │
-│ ║  4. Call trustedauth-service to generate tokens                         ║ │
-│ ║  5. Handle OAuth callback redirect with OTT parameter                   ║ │
-│ ║  6. Support multiple environment modes (local, test, master)            ║ │
-│ ╚═════════════════════════════════════════════════════════════════════════╝ │
-│                                                                               │
-│ ╔═════════════════════════════════════════════════════════════════════════╗ │
-│ ║                    2. trustedauth-service                                ║ │
-│ ║              (Core API - Token Generation & Validation)                  ║ │
-│ ║──────────────────────────────────────────────────────────────────────────║ │
-│ ║ Technology: Express.js + Node.js                                         ║ │
-│ ║ Port: 3002                                                               ║ │
-│ ║ Host: AWS Elastic Beanstalk                                              ║ │
-│ ║ Main Responsibility: Token lifecycle management, signature validation    ║ │
-│ ║                                                                           ║ │
-│ ║ Key Modules:                                                             ║ │
-│ ║                                                                           ║ │
-│ ║  [tpapi.js]                                                              ║ │
-│ ║  ├─ DynamoDB operations for trusted parties                              ║ │
-│ ║  ├─ Token generation (JWT with RSA signing)                             ║ │
-│ ║  ├─ findById(tpId) - Lookup trusted party by ID                         ║ │
-│ ║  ├─ findByApiKey(apiKey) - Lookup trusted party by API key              ║ │
-│ ║  ├─ genToken(party, userId, payload) - Generate OTT+OWT                 ║ │
-│ ║  ├─ createOrUpdateUserToken(userId, userToken)                          ║ │
-│ ║  └─ validateSignature(payload, signature) - HMAC-SHA512 validation      ║ │
-│ ║                                                                           ║ │
-│ ║  [userapi.js]                                                            ║ │
-│ ║  ├─ HTTP client for user-auth-service                                   ║ │
-│ ║  ├─ guestToken() - Request guest token from upstream                    ║ │
-│ ║  ├─ authTokens(userToken) - Fetch auth cookies/tokens                   ║ │
-│ ║  └─ login(credentials) - Validate user credentials                      ║ │
-│ ║                                                                           ║ │
-│ ║  [util.js]                                                               ║ │
-│ ║  ├─ hash(str) - SHA512 hashing                                          ║ │
-│ ║  ├─ uuid4() - UUID generation                                           ║ │
-│ ║  ├─ genRandomStr(len) - Random string generation                        ║ │
-│ ║  ├─ isValidAbn(abn) - ABN validation (Australian Business Number)       ║ │
-│ ║  ├─ getSignaturePayLoadFromRequest(req) - Extract signature params      ║ │
-│ ║  └─ fetch(options) - HTTP client wrapper                                ║ │
-│ ║                                                                           ║ │
-│ ║ API Routes:                                                              ║ │
-│ ║                                                                           ║ │
-│ ║  Trusted Party Admin Routes (/auth/tp):                                  ║ │
-│ ║   - POST /auth/tp/:tpId            - Create trusted party with ID       ║ │
-│ ║   - POST /auth/tp/                 - Create with auto-generated ID      ║ │
-│ ║   - PUT /auth/tp/:tpId             - Update trusted party               ║ │
-│ ║   - DELETE /auth/tp/:tpId          - Delete trusted party               ║ │
-│ ║   - GET /auth/tp/:tpId             - Get party by ID                    ║ │
-│ ║   - GET /auth/tp/apiKey/:apiKey    - Get party by API key               ║ │
-│ ║                                                                           ║ │
-│ ║  User Admin Routes (/auth/user):                                         ║ │
-│ ║   - GET /auth/user/token           - Get API token for OWT              ║ │
-│ ║   - GET /auth/user/cookies         - Get WC cookies for OWT             ║ │
-│ ║                                                                           ║ │
-│ ║  Customer Auth Routes (/auth):                                           ║ │
-│ ║   - PUT /auth/token/guest          - Generate guest token               ║ │
-│ ║   - PUT /auth/register/business    - Register business account          ║ │
-│ ║   - PUT /auth/register             - Register personal account          ║ │
-│ ║   - POST /auth/login               - Login and issue token              ║ │
-│ ║   - POST /auth/token/validate      - Validate given token               ║ │
-│ ║   - GET /auth/token                - Get OWT from OTT                   ║ │
-│ ║   - POST /auth/keepalive           - Keep user session alive            ║ │
-│ ║   - PUT /auth/token/cookies        - Legacy cookie-based auth           ║ │
-│ ║                                                                           ║ │
-│ ║ Dependencies:                                                            ║ │
-│ ║  - AWS DynamoDB (Tables: TrustedParty_Api, TrustedParty_Tokens,         ║ │
-│ ║    TrustedParty_UserToken)                                              ║ │
-│ ║  - User Auth Service (HTTP calls)                                       ║ │
-│ ║  - Winston Logger                                                        ║ │
-│ ║                                                                           ║ │
-│ ║ Key Features:                                                            ║ │
-│ ║  1. HMAC-SHA512 signature validation for all signed requests            ║ │
-│ ║  2. JWT token generation with configurable expiry (default 8h)         ║ │
-│ ║  3. One-Time Token (OTT) for secure token exchange                      ║ │
-│ ║  4. Request logging with unique request IDs                            ║ │
-│ ║  5. Nonce tracking for replay attack prevention                        ║ │
-│ ║  6. Support for guest, personal, and business user types               ║ │
-│ ╚═════════════════════════════════════════════════════════════════════════╝ │
-│                                                                               │
-│ ╔═════════════════════════════════════════════════════════════════════════╗ │
-│ ║                   3. trustedauth-profile                                ║ │
-│ ║            (Customer Profile Service)                                   ║ │
-│ ║──────────────────────────────────────────────────────────────────────────║ │
-│ ║ Technology: Express.js + Node.js                                         ║ │
-│ ║ Port: 3004                                                               ║ │
-│ ║ Host: AWS Elastic Beanstalk                                              ║ │
-│ ║ Main Responsibility: Return authenticated customer profile data          ║ │
-│ ║                                                                           ║ │
-│ ║ Key Routes:                                                              ║ │
-│ ║  - GET /auth/customer/profile     - Get profile (requires OWT token)   ║ │
-│ ║  - GET /status                    - Health check                        ║ │
-│ ║                                                                           ║ │
-│ ║ Dependencies:                                                            ║ │
-│ ║  - TrustedAuth Service (token validation)                               ║ │
-│ ║  - User Profile Client (upstream API)                                   ║ │
-│ ║                                                                           ║ │
-│ ║ Responsibilities:                                                        ║ │
-│ ║  1. Validate OWT token signature                                        ║ │
-│ ║  2. Call upstream API to fetch user profile                            ║ │
-│ ║  3. Return profile: userId, userName, email, phone, userType,          ║ │
-│ ║     firstName, lastName, business details                              ║ │
-│ ║  4. Cache responses to reduce upstream calls                           ║ │
-│ ║                                                                           ║ │
-│ ║ Response Example:                                                        ║ │
-│ ║  {                                                                       ║ │
-│ ║    "userId": "20786849",                                                ║ │
-│ ║    "userName": "John Doe",                                              ║ │
-│ ║    "userType": "BUSINESS",                                              ║ │
-│ ║    "email": "john@example.com",                                         ║ │
-│ ║    "firstName": "John",                                                 ║ │
-│ ║    "lastName": "Doe",                                                   ║ │
-│ ║    "phone": "0401111222",                                               ║ │
-│ ║    "mobile": null,                                                      ║ │
-│ ║    "custBP": "20786849",                                                ║ │
-│ ║    "orgBP": "20786848"                                                  ║ │
-│ ║  }                                                                       ║ │
-│ ╚═════════════════════════════════════════════════════════════════════════╝ │
-│                                                                               │
-│ ╔═════════════════════════════════════════════════════════════════════════╗ │
-│ ║                    4. user-auth-service                                 ║ │
-│ ║         (Main User Authentication & Authorization Service)              ║ │
-│ ║──────────────────────────────────────────────────────────────────────────║ │
-│ ║ Technology: Node.js + Express + AWS Cognito                             ║ │
-│ ║ Port: 3003                                                               ║ │
-│ ║ Host: AWS ECS (Elastic Container Service)                               ║ │
-│ ║ Main Responsibility: User credential validation, session management     ║ │
-│ ║                                                                           ║ │
-│ ║ Key Components:                                                          ║ │
-│ ║  - AWS Cognito User Pool integration                                    ║ │
-│ ║  - User credential validation                                           ║ │
-│ ║  - Multi-factor authentication support                                  ║ │
-│ ║  - Session token generation                                             ║ │
-│ ║  - Account registration (personal & business)                           ║ │
-│ ║  - Account recovery and password reset                                  ║ │
-│ ║                                                                           ║ │
-│ ║ Swagger/OpenAPI Specification:                                          ║ │
-│ ║  - /app/spec/swagger.yaml          - Full API specification             ║ │
-│ ║  - /app/spec/paths.yaml            - Endpoint definitions               ║ │
-│ ║  - /app/spec/definitions.yaml      - Data models                        ║ │
-│ ║  - /app/spec/parameters.yaml       - Parameter definitions              ║ │
-│ ║                                                                           ║ │
-│ ║ Infrastructure as Code:                                                 ║ │
-│ ║  - CloudFormation templates for Cognito user pools                      ║ │
-│ ║  - ECS task definitions                                                  ║ │
-│ ║  - IAM role definitions for task execution                              ║ │
-│ ║                                                                           ║ │
-│ ║ Typical Usage:                                                           ║ │
-│ ║  1. Third-party calls trustedauth-service with credentials              ║ │
-│ ║  2. trustedauth-service forwards to user-auth-service                   ║ │
-│ ║  3. user-auth-service validates against Cognito                         ║ │
-│ ║  4. Returns user token and session information                          ║ │
-│ ║                                                                           ║ │
-│ ║ Responsibilities:                                                        ║ │
-│ ║  1. Manage user credentials securely                                    ║ │
-│ ║  2. Integrate with AWS Cognito                                          ║ │
-│ ║  3. Provide user account lifecycle management                           ║ │
-│ ║  4. Return authenticated user tokens                                    ║ │
-│ ║  5. Maintain OpenAPI specification                                      ║ │
-│ ╚═════════════════════════════════════════════════════════════════════════╝ │
-│                                                                               │
-└───────────────────────────────────────────────────────────────────────────────┘
+
+---
+
+## Service Specifications
+
+### 1. trustedauth-app (OAuth Authorization Server UI)
+
+| Property | Value |
+|----------|-------|
+| **Technology** | Express.js + Handlebars templates |
+| **Port** | 3001 (external), 3003 (iframe mode) |
+| **Host** | AWS Elastic Beanstalk |
+| **Responsibility** | OAuth-like authorization flow & user interface |
+
+**Key Routes:**
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/auth/login` | Login form & flow |
+| GET | `/auth/register` | Registration form |
+| GET | `/auth/authorise` | OAuth authorization endpoint |
+| GET | `/auth/guest` | Guest token request flow |
+
+**Responsibilities:**
+1. Render authentication UI (login, register, guest)
+2. Validate user input
+3. Coordinate with user-auth-service for credential validation
+4. Call trustedauth-service to generate tokens
+5. Handle OAuth callback redirect with OTT parameter
+6. Support multiple environment modes (local, test, master)
+
+---
+
+### 2. trustedauth-service (Core API — Token Generation & Validation)
+
+| Property | Value |
+|----------|-------|
+| **Technology** | Express.js + Node.js |
+| **Port** | 3002 |
+| **Host** | AWS Elastic Beanstalk |
+| **Responsibility** | Token lifecycle management, signature validation |
+
+**Key Modules:**
+
+- **tpapi.js** — DynamoDB operations for trusted parties; `findById`, `findByApiKey`, `genToken`, `validateSignature`
+- **userapi.js** — HTTP client for user-auth-service; `guestToken`, `authTokens`, `login`
+- **util.js** — `hash`, `uuid4`, `genRandomStr`, `isValidAbn`, `getSignaturePayLoadFromRequest`
+
+**API Routes:**
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/auth/tp/:tpId` | Create trusted party with ID |
+| PUT | `/auth/tp/:tpId` | Update trusted party |
+| DELETE | `/auth/tp/:tpId` | Delete trusted party |
+| GET | `/auth/tp/:tpId` | Get party by ID |
+| GET | `/auth/tp/apiKey/:apiKey` | Get party by API key |
+| PUT | `/auth/token/guest` | Generate guest token |
+| PUT | `/auth/register/business` | Register business account |
+| PUT | `/auth/register` | Register personal account |
+| POST | `/auth/login` | Login and issue token |
+| POST | `/auth/token/validate` | Validate given token |
+| GET | `/auth/token` | Exchange OTT → OWT |
+| POST | `/auth/keepalive` | Keep user session alive |
+
+**Key Features:**
+1. HMAC-SHA512 signature validation for all signed requests
+2. JWT token generation with configurable expiry (default 8h)
+3. One-Time Token (OTT) for secure token exchange
+4. Request logging with unique request IDs
+5. Nonce tracking for replay attack prevention
+6. Support for guest, personal, and business user types
+
+---
+
+### 3. trustedauth-profile (Customer Profile Service)
+
+| Property | Value |
+|----------|-------|
+| **Technology** | Express.js + Node.js |
+| **Port** | 3004 |
+| **Host** | AWS Elastic Beanstalk |
+| **Responsibility** | Return authenticated customer profile data |
+
+**Key Routes:**
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/auth/customer/profile` | Get profile (requires OWT token) |
+| GET | `/status` | Health check |
+
+**Responsibilities:**
+1. Validate OWT token signature
+2. Call upstream API to fetch user profile
+3. Return profile: userId, userName, email, phone, userType, firstName, lastName, business details
+4. Cache responses to reduce upstream calls
+
+**Response Example:**
+```json
+{
+  "userId": "20786849",
+  "userName": "John Doe",
+  "userType": "BUSINESS",
+  "email": "john@example.com",
+  "firstName": "John",
+  "lastName": "Doe",
+  "phone": "0401111222",
+  "mobile": null,
+  "custBP": "20786849",
+  "orgBP": "20786848"
+}
 ```
+
+---
+
+### 4. user-auth-service (Main User Authentication Service)
+
+| Property | Value |
+|----------|-------|
+| **Technology** | Node.js + Express + TypeScript |
+| **Port** | 3000 |
+| **Host** | AWS ECS (Elastic Container Service) |
+| **Responsibility** | User credential validation, session management |
+
+**Key Components:**
+- AWS Cognito User Pool integration
+- User credential validation
+- Multi-factor authentication support
+- Session token generation
+- Account registration (personal & business)
+- Account recovery and password reset
+
+**OpenAPI Specification:**
+- `/app/spec/swagger.yaml` — Full API specification
+- `/app/spec/paths.yaml` — Endpoint definitions
+- `/app/spec/definitions.yaml` — Data models
+- `/app/spec/parameters.yaml` — Parameter definitions
+
+**Infrastructure as Code:**
+- CloudFormation templates for Cognito user pools
+- ECS task definitions
+- IAM role definitions for task execution
+
+**Responsibilities:**
+1. Manage user credentials securely via Cognito
+2. Provide user account lifecycle management
+3. Return authenticated user tokens
+4. Maintain OpenAPI specification
 
 ---
 
@@ -226,372 +214,214 @@ This document describes the individual containers (applications, services, and l
 
 ### 5. trustedauth-client (Browser Library)
 
-```
-┌────────────────────────────────────────────────────────────┐
-│             trustedauth-client                              │
-│         (Browser-Side JavaScript Library)                   │
-├────────────────────────────────────────────────────────────┤
-│ NPM Package: N/A (CDN-based)                               │
-│ Format: authclient.min.js (minified)                       │
-│ CDN: https://s3-ap-southeast-2.amazonaws.com/              │
-│      trustedauth-client/authclient.min.js                  │
-│ Runtime: Browser (requires DOM & window object)            │
-│                                                             │
-│ Key Functionality:                                          │
-│  - Custom HTML5 element: <ow-auth>                         │
-│  - Attributes: apikey, onlogin, mode, target, guest,       │
-│    guestToken, debug, btnLabel                            │
-│  - Modes: test, local, production (default)                │
-│                                                             │
-│ How It Works:                                              │
-│  1. User adds <ow-auth apikey="XXX" /> to page            │
-│  2. authclient.js creates iframe pointing to              │
-│     TrustedAuth login page                                │
-│  3. iframe loads with full authentication UI              │
-│  4. User interacts within iframe                          │
-│  5. iframe posts message back to parent via               │
-│     window.postMessage                                    │
-│  6. Parent app receives message with login status         │
-│  7. OWT cookie is set by third-party domain               │
-│                                                             │
-│ Methods:                                                    │
-│  - window.owauth.init()      - Initialize library         │
-│  - window.owauth.status()    - Check login status         │
-│  - window.owauth.authorise() - Trigger authorization      │
-│                                                             │
-│ Message Protocol (postMessage):                            │
-│  Payload: {                                                 │
-│    type: 'login' | 'logout' | 'register',                 │
-│    guest: boolean,                                         │
-│    token: string (OWT)                                    │
-│  }                                                          │
-│                                                             │
-│ Security Features:                                         │
-│  - Same-origin policy enforcement via postMessage         │
-│  - HTTP-only cookie setting by parent domain              │
-│  - Iframe sandbox restrictions                            │
-│                                                             │
-└────────────────────────────────────────────────────────────┘
+| Property | Value |
+|----------|-------|
+| **Format** | `authclient.min.js` (minified, CDN) |
+| **CDN** | `https://s3-ap-southeast-2.amazonaws.com/trustedauth-client/authclient.min.js` |
+| **Runtime** | Browser (requires DOM & window object) |
+
+**Custom Element Attributes:**
+
+| Attribute | Required | Values | Purpose |
+|-----------|----------|--------|---------|
+| `apikey` | Yes | string | Third-party API key |
+| `onlogin` | No | function name | Callback on login success |
+| `mode` | No | `local`\|`test`\|`prod` | Environment routing |
+| `target` | No | `login`\|`register`\|`guest` | Initial flow |
+| `guest` | No | `true`\|`false` | Show guest option |
+| `debug` | No | `true`\|`false` | Enable debug logging |
+
+**Domain Routing by Mode:**
+
+| Mode | Domain |
+|------|--------|
+| `local` | `http://localhost:3003` |
+| `test` | `https://ofwtest.officeworks.com.au` |
+| default/`prod` | `https://www.officeworks.com.au` |
+
+**How It Works:**
+1. User adds `<ow-auth apikey="XXX" />` to page
+2. authclient.js creates iframe pointing to TrustedAuth login page
+3. User interacts within iframe
+4. iframe posts message back to parent via `window.postMessage`
+5. Parent app receives message with login status and OWT
+
+**postMessage Protocol:**
+```json
+{
+  "type": "login | logout | register",
+  "guest": false,
+  "token": "<OWT JWT>"
+}
 ```
 
-### 6. trustedauth-node-client (Server-Side Node.js Library)
+---
 
-```
-┌────────────────────────────────────────────────────────────┐
-│           trustedauth-node-client (TANK)                   │
-│    (Server-Side Node.js Client Library)                    │
-├────────────────────────────────────────────────────────────┤
-│ NPM Package: @ow/trustedauth-node-client                  │
-│ Repository: trustedauth-node-client                        │
-│ Runtime: Node.js (10+)                                     │
-│ Main Export: { Client }                                    │
-│                                                             │
-│ Constructor:                                               │
-│  Client(apiKey, serverUrl, internalServerUrl,            │
-│         signatureSecret)                                   │
-│                                                             │
-│  Parameters:                                               │
-│  - apiKey: Public API key issued by TrustedAuth            │
-│  - serverUrl: Public endpoint (https://...)               │
-│  - internalServerUrl: Internal endpoint (http://...)       │
-│  - signatureSecret: Secret for HMAC-SHA512 signing        │
-│                                                             │
-│ Key Methods:                                               │
-│  ┌────────────────────────────────────────────┐           │
-│  │ getProfile(customerToken)                  │           │
-│  │ - Fetch authenticated user profile         │           │
-│  │ - Parameter: OWT token                    │           │
-│  │ - Returns: Promise<UserProfile>            │           │
-│  │ - Usage: authClient.getProfile(owt)        │           │
-│  └────────────────────────────────────────────┘           │
-│                                                             │
-│  ┌────────────────────────────────────────────┐           │
-│  │ exchangeToken(ott)                         │           │
-│  │ - Exchange one-time token for OWT          │           │
-│  │ - Parameter: OTT from callback              │           │
-│  │ - Returns: Promise<{ owt: string }>         │           │
-│  │ - Signs request with HMAC-SHA512            │           │
-│  │ - Must be called on server (never client)   │           │
-│  └────────────────────────────────────────────┘           │
-│                                                             │
-│  ┌────────────────────────────────────────────┐           │
-│  │ validateToken(customerToken)               │           │
-│  │ - Validate OWT token                       │           │
-│  │ - Internal endpoint only                   │           │
-│  │ - Parameter: OWT token                    │           │
-│  │ - Returns: Promise<ValidationResult>       │           │
-│  └────────────────────────────────────────────┘           │
-│                                                             │
-│  ┌────────────────────────────────────────────┐           │
-│  │ expressMiddleware(whiteList)               │           │
-│  │ - Express middleware for token validation   │           │
-│  │ - Parameter: Array of URL paths to protect │           │
-│  │ - Validates 'owt' cookie on matching URLs  │           │
-│  │ - Returns: Middleware function              │           │
-│  │ - Example: app.use(client.expressMiddleware │           │
-│  │           (['/api/orders', '/api/profile']))│           │
-│  └────────────────────────────────────────────┘           │
-│                                                             │
-│  ┌────────────────────────────────────────────┐           │
-│  │ signedReq(method, uri, params, headers)    │           │
-│  │ - Internal: Send HMAC-SHA512 signed request│           │
-│  │ - Auto-adds: x-ow-signature, x-ow-nonce    │           │
-│  │ - Parameters signed with secret key        │           │
-│  │ - Returns: Promise<Response>                │           │
-│  └────────────────────────────────────────────┘           │
-│                                                             │
-│ Request Signing Process:                                   │
-│  1. Generate random nonce                                  │
-│  2. Create signing string from parameters                  │
-│  3. Compute HMAC-SHA512(signingString, secret)            │
-│  4. Add headers: x-ow-signature, x-ow-nonce,              │
-│     x-ow-signing-string                                   │
-│  5. Send HTTP request with signed headers                 │
-│  6. Server validates signature using same secret          │
-│                                                             │
-│ Usage Example:                                             │
-│  const authClient = new Client(                            │
-│    'api-key-123',                                          │
-│    'https://ofwtest.officeworks.com.au',                  │
-│    'http://internal-server.local',                        │
-│    'secret-key-456'                                       │
-│  );                                                         │
-│                                                             │
-│  authClient.exchangeToken(req.query.ott)                  │
-│    .then(resp => {                                         │
-│      res.cookie('owt', resp.owt, {                         │
-│        httpOnly: true,                                     │
-│        secure: true                                        │
-│      });                                                    │
-│      res.json({ success: true });                          │
-│    });                                                      │
-│                                                             │
-└────────────────────────────────────────────────────────────┘
+### 6. trustedauth-node-client (TANK — Server-Side Library)
+
+| Property | Value |
+|----------|-------|
+| **NPM Package** | `@ow/trustedauth-node-client` |
+| **Runtime** | Node.js 10+ |
+| **Main Export** | `{ Client }` |
+
+**Constructor:**
+```javascript
+new Client(apiKey, serverUrl, internalServerUrl, signatureSecret)
 ```
 
-### 7. trustedauth-react-redux (React Library)
+**Public Methods:**
 
+| Method | Purpose | Signed? |
+|--------|---------|---------|
+| `getProfile(owt)` | Fetch authenticated user profile | Yes |
+| `exchangeToken(ott)` | Exchange one-time token for OWT | Yes |
+| `validateToken(owt)` | Validate OWT (internal endpoint only) | Yes |
+| `expressMiddleware(whitelist)` | Express middleware for protected routes | N/A |
+
+**Request Signing Process:**
+1. Generate random nonce
+2. Build signing string: `ow-api-key={apiKey}&ow-nonce={nonce}&owt={token}`
+3. Compute `HMAC-SHA512(signingString, secret)`
+4. Add headers: `x-ow-signature`, `x-ow-nonce`, `x-ow-signing-string`
+5. Send HTTP request with signed headers
+
+**Usage Example:**
+```javascript
+const { Client } = require('@ow/trustedauth-node-client');
+
+const authClient = new Client(
+  'api-key-123',
+  'https://ofwtest.officeworks.com.au',
+  'http://internal-server.local',
+  'secret-key-456'
+);
+
+authClient.exchangeToken(req.query.ott)
+  .then(resp => {
+    res.cookie('owt', resp.owt, { httpOnly: true, secure: true });
+    res.json({ success: true });
+  });
 ```
-┌────────────────────────────────────────────────────────────┐
-│       trustedauth-react-redux (TARAS)                      │
-│    (React & Redux Integration Library)                     │
-├────────────────────────────────────────────────────────────┤
-│ NPM Package: @ow/trustedauth-react-redux                  │
-│ Runtime: React + Redux                                     │
-│                                                             │
-│ Key Exports:                                               │
-│  ┌────────────────────────────────────────────┐           │
-│  │ OWAuth Component                           │           │
-│  │ - React component for authentication UI    │           │
-│  │ - Props:                                   │           │
-│  │   - apiKey (required)                     │           │
-│  │   - serverHostname (required)              │           │
-│  │   - iframeOptions (optional)               │           │
-│  │   - mode (optional: test/local/prod)      │           │
-│  │   - width, height (optional)               │           │
-│  │                                            │           │
-│  │ - Renders authentication modal iframe      │           │
-│  │ - Listens for login/register events        │           │
-│  │ - Dispatches Redux actions on auth events  │           │
-│  └────────────────────────────────────────────┘           │
-│                                                             │
-│  ┌────────────────────────────────────────────┐           │
-│  │ OWAuthMiddleware                           │           │
-│  │ - Redux middleware for auth checks        │           │
-│  │ - Signature: (isApplicable, profileURI,   │           │
-│  │            autoLogin)                     │           │
-│  │                                            │           │
-│  │ - isApplicable: (action) => boolean       │           │
-│  │   Function to determine if auth is needed │           │
-│  │                                            │           │
-│  │ - profileURI: string                      │           │
-│  │   Endpoint to fetch user profile           │           │
-│  │   Example: '/customer/profile'             │           │
-│  │                                            │           │
-│  │ - autoLogin: boolean                      │           │
-│  │   Show login modal if not authenticated    │           │
-│  │                                            │           │
-│  │ Behavior:                                  │           │
-│  │ 1. Intercepts actions matching isApplicable│           │
-│  │ 2. Checks if user is authenticated         │           │
-│  │ 3. If not: dispatch login action           │           │
-│  │ 4. Wait for authentication to complete     │           │
-│  │ 5. Fetch profile from profileURI           │           │
-│  │ 6. Re-dispatch original action             │           │
-│  └────────────────────────────────────────────┘           │
-│                                                             │
-│  ┌────────────────────────────────────────────┐           │
-│  │ OWAuthReducer                              │           │
-│  │ - Redux reducer managing auth state        │           │
-│  │ - State structure:                         │           │
-│  │   {                                        │           │
-│  │     isLoggedIn: boolean,                   │           │
-│  │     userProfile: object | null,            │           │
-│  │     showModal: boolean,                    │           │
-│  │     error: string | null,                  │           │
-│  │     isLoading: boolean                    │           │
-│  │   }                                        │           │
-│  │                                            │           │
-│  │ - Register in Redux store with key 'owauth'│           │
-│  └────────────────────────────────────────────┘           │
-│                                                             │
-│  ┌────────────────────────────────────────────┐           │
-│  │ Action Creators                            │           │
-│  │ - fetchUserProfile(profileURI)             │           │
-│  │ - setUserProfile(userProfile)              │           │
-│  │ - hideModal()                              │           │
-│  │ - retrieveToken()                          │           │
-│  │ - setError(errMessage)                     │           │
-│  │ - setLoginStatus(data)                     │           │
-│  │ - showLogin()                              │           │
-│  │ - showRegister()                           │           │
-│  └────────────────────────────────────────────┘           │
-│                                                             │
-│  ┌────────────────────────────────────────────┐           │
-│  │ OWAuthPropType                             │           │
-│  │ - PropTypes definition for owauth state    │           │
-│  │ - Useful for component prop validation     │           │
-│  └────────────────────────────────────────────┘           │
-│                                                             │
-│ Setup Example:                                             │
-│  import { OWAuth, OWAuthMiddleware, OWAuthReducer }       │
-│    from '@ow/trustedauth-react-redux';                    │
-│                                                             │
-│  const store = createStore(                                │
-│    combineReducers({                                       │
-│      owauth: OWAuthReducer,                               │
-│      // ... other reducers                                 │
-│    }),                                                      │
-│    applyMiddleware(                                        │
-│      OWAuthMiddleware(                                     │
-│        action => action.type === 'FETCH_DATA',            │
-│        '/api/profile',                                     │
-│        true // autoLogin                                   │
-│      )                                                      │
-│    )                                                        │
-│  );                                                         │
-│                                                             │
-│  export default function App() {                          │
-│    return (                                                │
-│      <Provider store={store}>                              │
-│        <OWAuth                                             │
-│          apiKey="YOUR_API_KEY"                             │
-│          serverHostname="https://ofwtest.officeworks..."   │
-│        />                                                   │
-│        {/* ... rest of app ... */}                         │
-│      </Provider>                                           │
-│    );                                                      │
-│  }                                                          │
-│                                                             │
-│ Key Features:                                              │
-│  - Automatic authentication check on actions               │
-│  - User profile fetching and state management              │
-│  - Modal-based login/register UI                          │
-│  - Multiple environment support                            │
-│  - Redux integration for state management                  │
-│  - Delayed action dispatch until auth complete             │
-│                                                             │
-└────────────────────────────────────────────────────────────┘
+
+---
+
+### 7. trustedauth-react-redux (TARAS — React Library)
+
+| Property | Value |
+|----------|-------|
+| **NPM Package** | `@ow/trustedauth-react-redux` |
+| **Runtime** | React 15+ + Redux |
+
+**Key Exports:**
+
+| Export | Type | Purpose |
+|--------|------|---------|
+| `OWAuth` | React Component | Authentication UI modal/iframe |
+| `OWAuthMiddleware` | Redux Middleware | Intercepts actions, enforces auth |
+| `OWAuthReducer` | Redux Reducer | Manages `owauth` state slice |
+| `OWAuthPropType` | PropTypes | Type validation for owauth state |
+
+**Redux State Shape (`owauth` key):**
+```javascript
+{
+  isLoggedIn: boolean,
+  userProfile: UserProfile | null,
+  showModal: boolean,
+  error: string | null,
+  isLoading: boolean,
+  config: { apiKey: string, serverHostname: string }
+}
+```
+
+**Setup Example:**
+```javascript
+import { OWAuth, OWAuthMiddleware, OWAuthReducer } from '@ow/trustedauth-react-redux';
+
+const store = createStore(
+  combineReducers({ owauth: OWAuthReducer }),
+  applyMiddleware(
+    OWAuthMiddleware(
+      action => action.type === 'FETCH_DATA',  // isApplicable
+      '/api/profile',                           // profileURI
+      true                                      // autoLogin
+    )
+  )
+);
+
+export default function App() {
+  return (
+    <Provider store={store}>
+      <OWAuth apiKey="YOUR_API_KEY" serverHostname="https://ofwtest.officeworks.com.au" />
+      {/* ... rest of app ... */}
+    </Provider>
+  );
+}
 ```
 
 ---
 
 ## Container Dependencies
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                   Dependency Graph                       │
-├─────────────────────────────────────────────────────────┤
-│                                                          │
-│  trustedauth-app                                        │
-│  ├─ → user-auth-service (credential validation)         │
-│  ├─ → trustedauth-service (token generation)            │
-│  └─ → AWS Cognito                                       │
-│                                                          │
-│  trustedauth-service                                    │
-│  ├─ → user-auth-service (upstream auth)                 │
-│  ├─ → AWS DynamoDB (token & party storage)              │
-│  └─ → AWS Cognito (indirect via user-auth-service)      │
-│                                                          │
-│  trustedauth-profile                                    │
-│  ├─ → trustedauth-service (signature validation)        │
-│  ├─ → User Profile API (upstream profile data)          │
-│  └─ → Winston Logger                                    │
-│                                                          │
-│  user-auth-service                                      │
-│  ├─ → AWS Cognito (user management)                     │
-│  ├─ → Officeworks API Gateway (upstream)                │
-│  └─ → CloudFormation (infrastructure)                   │
-│                                                          │
-│  trustedauth-client (browser)                           │
-│  ├─ → trustedauth-app (iframe)                          │
-│  └─ → window.postMessage API                            │
-│                                                          │
-│  trustedauth-node-client (TANK)                         │
-│  ├─ → trustedauth-service (HTTP API calls)              │
-│  ├─ → trustedauth-profile (profile endpoint)            │
-│  └─ → crypto (request signing)                          │
-│                                                          │
-│  trustedauth-react-redux (TARAS)                        │
-│  ├─ → trustedauth-client (iframe management)            │
-│  ├─ → Redux Store (state management)                    │
-│  └─ → React (component framework)                       │
-│                                                          │
-└─────────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    tp_app[trustedauth-app :3001]
+    tp_svc[trustedauth-service :3002]
+    ua_svc[user-auth-service :3000]
+    tp_prof[trustedauth-profile :3004]
+    tank[TANK client]
+    taras[TARAS React]
+    browser[browser client]
+    dynamo[(DynamoDB)]
+    cognito[(AWS Cognito)]
+    s3[(S3 CDN)]
+
+    tp_app -->|credential validation| ua_svc
+    tp_app -->|token generation| tp_svc
+    tp_svc -->|upstream auth| ua_svc
+    tp_svc -->|tokens & party config| dynamo
+    tp_prof -->|user profile data| ua_svc
+    ua_svc -->|user management| cognito
+
+    tank -->|OTT exchange + validation| tp_svc
+    tank -->|profile fetch| tp_prof
+    taras -->|iframe auth UI| tp_app
+    browser -->|iframe auth UI| tp_app
+    browser -->|served from| s3
 ```
 
 ---
 
 ## Container Communication Patterns
 
-### HTTP/HTTPS Communication
+### HTTP/HTTPS Communication with HMAC-SHA512
 
-```
-External App ──HTTPS request with signature──> TrustedAuth Service
-                                                      │
-                                              Validate signature (HMAC-SHA512)
-                                                      │
-                                             ┌────────▼──────────┐
-                                             │ Signature valid?   │
-                                             └────────┬───────────┘
-                                                      │
-                                    ┌─────────────────┴─────────────────┐
-                                    │                                   │
-                                  YES                                  NO
-                                    │                                   │
-                                    ▼                                   ▼
-                         Process request          Return 401 Unauthorized
-                         Update DynamoDB
-                         Return tokens
+```mermaid
+flowchart TD
+    A[External App sends signed request] --> B{Signature valid?\nHMAC-SHA512}
+    B -->|Yes| C[Lookup party by apiKey in DynamoDB]
+    B -->|No| D[401 Unauthorized]
+    C --> E{Party found?}
+    E -->|Yes| F[Process request\nUpdate DynamoDB\nReturn tokens]
+    E -->|No| G[401 Invalid apiKey]
 ```
 
-### Message Passing (Browser)
+### Browser iframe Message Passing
 
-```
-Third-Party App
-    │
-    ├─ Load <ow-auth> element
-    │
-    ▼
-authclient.js
-    │
-    ├─ Create iframe pointing to trustedauth-app
-    │
-    ▼
-TrustedAuth App (in iframe)
-    │
-    ├─ User logs in
-    │
-    ▼
-Parent window receives postMessage
-    │
-    ├─ window.addEventListener('message', handler)
-    │
-    ▼
-Third-Party App handles login result
-    │
-    ├─ Backend sets OWT cookie
-    ├─ Redirect or update UI
+```mermaid
+sequenceDiagram
+    participant Page as Third-Party Page
+    participant Client as authclient.js
+    participant IFrame as TrustedAuth App (iframe)
+
+    Page->>Client: Load authclient.min.js
+    Page->>Client: <ow-auth apikey="XXX" onlogin="handleLogin">
+    Client->>IFrame: Create <iframe src="/auth/login?apiKey=XXX">
+    Client->>Page: window.addEventListener('message', handler)
+    IFrame->>IFrame: User logs in
+    IFrame->>Page: window.parent.postMessage({type:'login', token:'OWT'})
+    Page->>Page: handleLogin({type:'login', token:'OWT'})
+    Page->>Page: Backend sets OWT cookie
 ```
 
 ---
@@ -600,42 +430,25 @@ Third-Party App handles login result
 
 ### Guest Token Flow
 
-```
-1. Third-party app requests guest token
-   GET /auth/authorise?apiKey=XXX&target=guest
+```mermaid
+sequenceDiagram
+    participant TP as Third-Party App
+    participant TA as trustedauth-app
+    participant TS as trustedauth-service
+    participant UA as user-auth-service
+    participant DB as DynamoDB
 
-2. trustedauth-app renders guest form
-
-3. User clicks "Continue as Guest"
-
-4. trustedauth-app calls trustedauth-service
-   PUT /auth/token/guest { apiKey, signature, nonce }
-
-5. trustedauth-service:
-   - Validates HMAC signature
-   - Calls user-auth-service.guestToken()
-   - Receives user token from upstream
-   - Generates JWT(payload: { user: { id: token, type: GUEST } })
-   - Creates OTT + OWT
-   - Stores in DynamoDB
-   - Returns OTT to iframe
-
-6. trustedauth-app redirects to callback
-   GET callback?ott=XXX
-
-7. Third-party backend:
-   - Calls trustedauth-service.exchangeToken(ott)
-   - TANK client handles signing
-   - Receives OWT
-   - Sets OWT cookie (httpOnly, secure)
-
-8. Third-party calls trustedauth-profile
-   GET /auth/customer/profile with OWT cookie
-
-9. trustedauth-profile validates signature
-   Returns user profile
-
-10. Third-party app now has authenticated user
+    TP->>TA: GET /auth/authorise?apiKey=XXX&target=guest
+    TA->>TA: Render guest form
+    TA->>TS: PUT /auth/token/guest {apiKey, ...}
+    TS->>UA: GET /auth/guest
+    UA-->>TS: userToken
+    TS->>DB: Store TrustedParty_Tokens {OTT, OWT, GUEST}
+    TS-->>TA: {ott, owt, authTokens}
+    TA-->>TP: Redirect to callback?ott=XXX
+    TP->>TS: GET /auth/token?ott=XXX (HMAC signed via TANK)
+    TS-->>TP: {owt: JWT}
+    TP->>TP: Set-Cookie: owt=JWT; HttpOnly; Secure
 ```
 
 ---

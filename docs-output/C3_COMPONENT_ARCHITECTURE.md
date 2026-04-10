@@ -17,7 +17,7 @@ This document describes the detailed components within each container, including
 tpapi.js
 ├── Database Layer
 │   ├── transformTrustedParty(dbItem)
-│   │   └─ Converts DynamoDB record to {partyId, name, apiKey, 
+│   │   └─ Converts DynamoDB record to {partyId, name, apiKey,
 │   │      secretKey, callbackUrl, nonce, tpClientId}
 │   │
 │   ├── transformTrustedPartyToken(dbItem)
@@ -48,7 +48,7 @@ tpapi.js
 │          Returns: Promise<UserToken>
 │
 ├── Create/Update Operations
-│   ├── registerParty(tpId?, name, apiKey, secretKey, 
+│   ├── registerParty(tpId?, name, apiKey, secretKey,
 │   │                 callbackUrl, nonce)
 │   │   └─ PUT TrustedParty_Api
 │   │      - Auto-generates ID if not supplied
@@ -804,68 +804,66 @@ trustedauth-client/
 
 ## 6. Database Schema (DynamoDB)
 
-```
-TrustedParty_Api Table
-├─ Primary Key: PartyId (HASH)
-├─ Global Secondary Index: ApiKey-index (HASH: ApiKey)
-├─ Attributes
-│   ├─ PartyId (String) - Unique party identifier
-│   ├─ Name (String) - Party name
-│   ├─ ApiKey (String) - Public API key
-│   ├─ Secret (String) - Private secret for HMAC
-│   ├─ CallbackUrl (String) - OAuth callback endpoint
-│   ├─ Nonce (String) - Security nonce
-│   ├─ TpClientId (String) - Client identifier
-│   └─ CreatedAt (Number) - Timestamp
-│
-└─ Item Example
-   {
-     "PartyId": "90003",
-     "Name": "accis",
-     "ApiKey": "Izj5SZEe8b7L4vxG01N0",
-     "Secret": "OIHMFfAv24sInyNd6EOdzrVTRMxOtct8QXSOUV18",
-     "CallbackUrl": "http://www.owt.com",
-     "Nonce": "393939393939",
-     "TpClientId": "90003"
-   }
+### Table: TrustedParty_Api
 
-TrustedParty_Tokens Table
-├─ Primary Key: UserToken (HASH), PartyId (RANGE)
-├─ Attributes
-│   ├─ UserToken (String) - User token from upstream
-│   ├─ PartyId (String) - Trusted party ID
-│   ├─ PartyToken (String) - JWT token issued
-│   ├─ OneTimeToken (String) - OTT for token exchange
-│   ├─ UserId (String) - Upstream user ID
-│   ├─ IssueTime (Number) - Timestamp issued
-│   ├─ ExpiryTime (Number) - TTL (8 hours)
-│   └─ UserType (String) - GUEST|PERSONAL|BUSINESS
-│
-└─ Item Example
-   {
-     "UserToken": "user-token-123",
-     "PartyId": "90003",
-     "PartyToken": "JWT...",
-     "OneTimeToken": "ott-abc-def",
-     "UserId": "customer-123",
-     "IssueTime": 1696000000,
-     "ExpiryTime": 1696028800,
-     "UserType": "PERSONAL"
-   }
+| Attribute | Type | Key | Notes |
+|-----------|------|-----|-------|
+| PartyId | String | HASH (PK) | Unique party identifier |
+| Name | String | | Display name |
+| ApiKey | String | GSI: ApiKey-index | Public API key |
+| Secret | String | | Private HMAC secret |
+| CallbackUrl | String | | OAuth callback endpoint |
+| Nonce | String | | Security nonce |
+| TpClientId | String | | Client identifier |
+| CreatedAt | Number | | Epoch timestamp |
 
-TrustedParty_UserToken Table
-├─ Primary Key: UserId (HASH)
-├─ Attributes
-│   ├─ UserId (String) - User identifier
-│   ├─ UserToken (String) - User token mapping
-│   └─ CreatedAt (Number) - Timestamp
-│
-└─ Item Example
-   {
-     "UserId": "customer-123",
-     "UserToken": "user-token-123"
-   }
+**Example item:**
+```json
+{
+  "PartyId": "90003",
+  "Name": "accis",
+  "ApiKey": "Izj5SZEe8b7L4vxG01N0",
+  "Secret": "OIHMFfAv24sInyNd6EOdzrVTRMxOtct8QXSOUV18",
+  "CallbackUrl": "http://www.owt.com",
+  "Nonce": "393939393939",
+  "TpClientId": "90003"
+}
 ```
+
+### Table: TrustedParty_Tokens
+
+| Attribute | Type | Key | Notes |
+|-----------|------|-----|-------|
+| UserToken | String | HASH (PK) | User token from upstream |
+| PartyId | String | RANGE (SK) | Trusted party ID |
+| PartyToken | String | | JWT token (OWT) issued |
+| OneTimeToken | String | | OTT for token exchange |
+| UserId | String | | Upstream user ID |
+| IssueTime | Number | | Epoch timestamp |
+| ExpiryTime | Number | | TTL — 8 hours from issue |
+| UserType | String | | `GUEST` \| `PERSONAL` \| `BUSINESS` |
+
+**Example item:**
+```json
+{
+  "UserToken": "user-token-123",
+  "PartyId": "90003",
+  "PartyToken": "JWT...",
+  "OneTimeToken": "ott-abc-def",
+  "UserId": "customer-123",
+  "IssueTime": 1696000000,
+  "ExpiryTime": 1696028800,
+  "UserType": "PERSONAL"
+}
+```
+
+### Table: TrustedParty_UserToken
+
+| Attribute | Type | Key | Notes |
+|-----------|------|-----|-------|
+| UserId | String | HASH (PK) | User identifier |
+| UserToken | String | | Maps to upstream user token |
+| CreatedAt | Number | | Epoch timestamp |
 
 ---
 
@@ -873,42 +871,52 @@ TrustedParty_UserToken Table
 
 ### HMAC-SHA512 Signature Algorithm
 
-```
-Signing Process
-├─ 1. Prepare Data to Sign
-│   └─ Concatenate parameters: apiKey + nonce + [optional payload]
-│
-├─ 2. Generate HMAC
-│   └─ signature = HMAC-SHA512(dataToSign, secretKey)
-│
-├─ 3. Add Headers to Request
-│   ├─ x-ow-signature: <hex encoded signature>
-│   ├─ x-ow-nonce: <random string>
-│   └─ x-ow-signing-string: <data that was signed>
-│
-└─ 4. Server Validation
-    ├─ Extract secret for apiKey
-    ├─ Recompute HMAC using same algorithm
-    ├─ Compare provided signature with computed
-    └─ Accept if match, reject if mismatch (401)
+```mermaid
+sequenceDiagram
+    participant C as Client (TANK)
+    participant S as trustedauth-service
+    participant DB as DynamoDB
 
-Example Implementation (Node.js)
-┌─────────────────────────────────────────┐
-│ const crypto = require('crypto');       │
-│                                         │
-│ function sign(dataToSign, secret) {    │
-│   return crypto                         │
-│     .createHmac('sha512', secret)      │
-│     .update(dataToSign)                 │
-│     .digest('hex');                     │
-│ }                                       │
-│                                         │
-│ const signature = sign(                 │
-│   apiKey + nonce,                       │
-│   secretKey                             │
-│ );                                      │
-└─────────────────────────────────────────┘
+    Note over C: 1. Build signing string
+    Note over C: signingString = "ow-api-key={apiKey}&ow-nonce={nonce}&owt={token}"
+    Note over C: 2. Compute HMAC-SHA512(signingString, secretKey)
+    Note over C: 3. Add headers
+    C->>S: Request + {x-ow-signature, x-ow-nonce, x-ow-signing-string}
+    S->>DB: Lookup party secret by apiKey
+    DB-->>S: party.Secret
+    Note over S: 4. Recompute HMAC-SHA512(signingString, party.Secret)
+    Note over S: 5. Compare provided vs computed signature
+    alt Signatures match
+        S-->>C: 200 OK + response body
+    else Signatures differ
+        S-->>C: 401 Unauthorized
+    end
 ```
+
+**Implementation (Node.js):**
+```javascript
+const crypto = require('crypto');
+
+function sign(dataToSign, secret) {
+  return crypto
+    .createHmac('sha512', secret)
+    .update(dataToSign)
+    .digest('hex');
+}
+
+// Signing string format (ordered params):
+const signingString = `ow-api-key=${apiKey}&ow-nonce=${nonce}&owt=${token}`;
+const signature = sign(signingString, secretKey);
+```
+
+**Protected Request Headers:**
+
+| Header | Value | Required |
+|--------|-------|----------|
+| `X-OW-SIGNATURE` | Hex-encoded HMAC-SHA512 | Yes |
+| `X-OW-NONCE` | Random string (per-request) | Yes |
+| `X-OW-AGENTTOKEN` | Agent credentials (admin only) | Admin routes |
+| `X-OW-ADMIN-KEY` | Admin API key | Admin routes |
 
 ---
 
@@ -916,13 +924,13 @@ Example Implementation (Node.js)
 
 | Component | Technology | Responsibility | Port |
 |-----------|-----------|-----------------|------|
-| trustedauth-app | Express + Handlebars | OAuth UI & authorization | 3001 |
+| trustedauth-app | Express + Handlebars | OAuth UI & authorization | 3001/3003 |
 | trustedauth-service | Express + Node.js | Token generation & validation | 3002 |
-| user-auth-service | Node.js + Cognito | User credential validation | 3003 |
+| user-auth-service | Node.js + TypeScript + Cognito | User credential validation | 3000 |
 | trustedauth-profile | Express + Node.js | User profile endpoint | 3004 |
-| trustedauth-node-client | NPM package | Server-side integration | - |
-| trustedauth-react-redux | NPM package | React/Redux integration | - |
-| trustedauth-client | Browser JS | Client-side authentication | - |
+| trustedauth-node-client | NPM package | Server-side integration | — |
+| trustedauth-react-redux | NPM package | React/Redux integration | — |
+| trustedauth-client | Browser JS (CDN) | Client-side authentication | — |
 
 ---
 

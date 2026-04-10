@@ -10,71 +10,33 @@ This document describes the detailed flows for each authentication scenario supp
 
 ### Sequence Diagram
 
-```
-Third-Party App          Browser           TrustedAuth App      TrustedAuth Service    User Auth Service
-      │                    │                     │                      │                    │
-      ├─ 1. User clicks    │                     │                      │                    │
-      │    "Continue as    │                     │                      │                    │
-      │    Guest"          │                     │                      │                    │
-      │                    │                     │                      │                    │
-      ├─ 2. Redirect to   │                     │                      │                    │
-      │    /auth/authorise │                     │                      │                    │
-      │    ?apiKey=XXX     │                     │                      │                    │
-      │    &target=guest   │                     │                      │                    │
-      │                    │                     │                      │                    │
-      │                    ├─ 3. GET /auth/authorise ────────────────────────────────────>│
-      │                    │                     │                      │                    │
-      │                    │    4. Render guest │                      │                    │
-      │                    │    form, click     │                      │                    │
-      │                    │    "Continue"      │                      │                    │
-      │                    │                    │                      │                    │
-      │                    │    5. PUT /auth/token/guest ────────────────────────────────>│
-      │                    │       {apiKey, ...}│                      │                    │
-      │                    │                    │     6. Call         │                    │
-      │                    │                    │    guestToken()     │                    │
-      │                    │                    │                     ├───────────────────>│
-      │                    │                    │                     │  GET /auth/guest   │
-      │                    │                    │                     │  Returns: userToken│
-      │                    │                    │<────────────────────┤                    │
-      │                    │                    │     7. userToken    │                    │
-      │                    │                    │                     │                    │
-      │                    │                    │   8. Create JWT     │                    │
-      │                    │                    │   payload:          │                    │
-      │                    │                    │   {user: {          │                    │
-      │                    │                    │     id: userToken,  │                    │
-      │                    │                    │     type: GUEST     │                    │
-      │                    │                    │   }}                │                    │
-      │                    │                    │                     │                    │
-      │                    │                    │   9. Generate OTT   │                    │
-      │                    │                    │      & OWT           │                    │
-      │                    │                    │   10. Store in DB   │                    │
-      │                    │                    │                     │                    │
-      │                    │<─ 11. Return {ott, owt, ...} ─────────────────────────────────│
-      │                    │                    │                     │                    │
-      │<─ 12. Redirect to callback ───────────────────────────────────────────────────────│
-      │    ?ott=XXX        │                    │                     │                    │
-      │                    │                    │                     │                    │
-      ├─ 13. POST /callback?ott=XXX             │                     │                    │
-      │    (Server-side)   │                    │                     │                    │
-      │                    │                    │                     │                    │
-      │ 14. Use TANK Client to exchange OTT    │                     │                    │
-      ├────────────────────────────────────────>│ 15. GET /auth/token ────────────────────>│
-      │                    │                    │     With HMAC       │                    │
-      │                    │                    │     signature       │                    │
-      │                    │                    │                     │                    │
-      │                    │                    │   16. Validate      │                    │
-      │                    │                    │   signature & OTT   │                    │
-      │                    │                    │                     │                    │
-      │<─ 17. Return {owt} ───────────────────────────────────────────────────────────────│
-      │                    │                    │                     │                    │
-      │ 18. Set OWT cookie │                    │                     │                    │
-      │     (httpOnly,     │                    │                     │                    │
-      │     secure)        │                    │                     │                    │
-      │                    │                    │                     │                    │
-      │ 19. Redirect to    │                    │                     │                    │
-      │     success page   │                    │                     │                    │
-      │                    │                    │                     │                    │
-      ▼                    ▼                    ▼                      ▼                    ▼
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as User (Browser)
+    participant TP as Third-Party App
+    participant TA as TrustedAuth App
+    participant TS as TrustedAuth Service
+    participant UA as User Auth Service
+    participant DB as DynamoDB
+
+    User->>TP: Click "Continue as Guest"
+    TP->>TA: Redirect GET /auth/authorise?apiKey=XXX&target=guest&cb=CALLBACK
+    TA->>TA: Validate apiKey, render guest form
+    User->>TA: Confirm "Continue as Guest"
+    TA->>TS: PUT /auth/token/guest {apiKey, nonce}
+    TS->>UA: GET /auth/guest
+    UA-->>TS: userToken
+    TS->>DB: Store TrustedParty_Tokens {OTT, OWT, GUEST, 8h TTL}
+    TS-->>TA: {owt, ott, authTokens, user}
+    TA-->>User: Redirect to CALLBACK?ott=XXX
+    User->>TP: GET CALLBACK?ott=XXX (server-side)
+    TP->>TS: GET /auth/token?ott=XXX<br/>(HMAC-SHA512 signed via TANK)
+    TS->>DB: Lookup & invalidate OTT
+    DB-->>TS: OWT
+    TS-->>TP: {owt: JWT_TOKEN}
+    TP->>User: Set-Cookie: owt=JWT; HttpOnly; Secure
+    TP->>User: Redirect to success page
 ```
 
 ### Detailed Steps
@@ -103,38 +65,33 @@ Third-Party App          Browser           TrustedAuth App      TrustedAuth Serv
    - Generates OWT (JWT token) with 8-hour expiry
    - Generates OTT (random 32-char string)
    - Stores in DynamoDB:
-     ```
-     TrustedParty_Tokens:
+     ```json
      {
-       UserToken: userToken,
-       PartyId: partyId,
-       PartyToken: owt,
-       OneTimeToken: ott,
-       IssueTime: now,
-       ExpiryTime: now + 8h,
-       UserType: "GUEST"
+       "UserToken": "userToken",
+       "PartyId": "partyId",
+       "PartyToken": "owt",
+       "OneTimeToken": "ott",
+       "IssueTime": 1696000000,
+       "ExpiryTime": 1696028800,
+       "UserType": "GUEST"
      }
      ```
 
 5. **Callback with OTT**
    - trustedauth-app redirects to callback URL
    - `GET CALLBACK_URL?ott=XXX&owt=YYY`
-   - OWL included for browser-side consumption
 
 6. **Token Exchange (Third-Party Backend)**
    - Third-party backend receives callback
    - Uses TANK client to exchange OTT for OWT
    - Calls: `GET /auth/token?ott=OTT_VALUE`
-   - Includes HMAC-SHA512 signature in headers:
-     - `x-ow-signature`: HMAC-SHA512(apiKey + nonce, secret)
+   - HMAC-SHA512 signed headers:
+     - `x-ow-signature`: `HMAC-SHA512("ow-api-key={apiKey}&ow-nonce={nonce}", secret)`
      - `x-ow-nonce`: random value
-     - `x-ow-signing-string`: data signed
 
 7. **Token Validation & Return**
-   - trustedauth-service receives exchange request
-   - Validates HMAC signature using party's secret key
-   - Looks up OTT in DynamoDB
-   - Verifies OTT not expired and not used
+   - trustedauth-service validates HMAC signature
+   - Looks up and invalidates OTT in DynamoDB
    - Returns OWT: `{ owt: JWT_TOKEN }`
 
 8. **Session Establishment**
@@ -142,7 +99,6 @@ Third-Party App          Browser           TrustedAuth App      TrustedAuth Serv
      ```
      Set-Cookie: owt=JWT_TOKEN; Path=/; HttpOnly; Secure; Max-Age=28800
      ```
-   - Redirects user to success page
 
 ### Error Scenarios
 
@@ -161,79 +117,34 @@ Third-Party App          Browser           TrustedAuth App      TrustedAuth Serv
 
 ### Sequence Diagram
 
-```
-Third-Party App          Browser           TrustedAuth App      TrustedAuth Service    User Auth Service
-      │                    │                     │                      │                    │
-      ├─ 1. Redirect to   │                     │                      │                    │
-      │    /auth/authorise │                     │                      │                    │
-      │    ?apiKey=XXX     │                     │                      │                    │
-      │    &target=login   │                     │                      │                    │
-      │                    │                     │                      │                    │
-      │                    ├─ 2. GET /auth/authorise ────────────────────────────────────>│
-      │                    │                     │                      │                    │
-      │                    │   3. Render login   │                      │                    │
-      │                    │   form (email,      │                      │                    │
-      │                    │   password fields)  │                      │                    │
-      │                    │                    │                      │                    │
-      │                    │   4. User enters   │                      │                    │
-      │                    │   credentials,      │                      │                    │
-      │                    │   clicks login      │                      │                    │
-      │                    │                    │                      │                    │
-      │                    │   5. POST /login   │                      │                    │
-      │                    │   {email,          │                      │                    │
-      │                    │    password}       │                      │                    │
-      │                    │                    │                      │                    │
-      │                    │                    ├─ 6. POST /login────>│                    │
-      │                    │                    │     {email,password} │                    │
-      │                    │                    │                     ├───────────────────>│
-      │                    │                    │                     │ POST /auth        │
-      │                    │                    │                     │ {email, password} │
-      │                    │                    │                     │                   │
-      │                    │                    │                     │ 7. Validate vs    │
-      │                    │                    │                     │ Cognito           │
-      │                    │                    │                     │ (Success)         │
-      │                    │                    │                     │                   │
-      │                    │                    │                     │ 8. Return userToken
-      │                    │                    │<────────────────────┤                   │
-      │                    │                    │   9. userToken      │                   │
-      │                    │                    │                     │                   │
-      │                    │                    │   10. Call getAuthTokens
-      │                    │                    │       (fetch cookies)│                   │
-      │                    │                    │                     ├─────────────────>│
-      │                    │                    │                     │ GET /tokens      │
-      │                    │                    │                     │                  │
-      │                    │                    │                     │<─────────────────┤
-      │                    │                    │<─────────────────────┤ {wc_auth, ...}  │
-      │                    │                    │   11. authTokens    │                  │
-      │                    │                    │                     │                  │
-      │                    │                    │   12. Create JWT    │                  │
-      │                    │                    │   payload:          │                  │
-      │                    │                    │   {user: {          │                  │
-      │                    │                    │     id: userToken,  │                  │
-      │                    │                    │     type: PERSONAL  │                  │
-      │                    │                    │   }}                │                  │
-      │                    │                    │                     │                  │
-      │                    │                    │   13. Generate OTT  │                  │
-      │                    │                    │        & OWT         │                  │
-      │                    │                    │   14. Store in DB   │                  │
-      │                    │                    │                     │                  │
-      │                    │<─ 15. Redirect to callback ────────────────────────────────│
-      │                    │    ?ott=XXX        │                     │                  │
-      │                    │                    │                     │                  │
-      │<─ 16. Callback received                  │                     │                  │
-      │                    │                    │                     │                  │
-      │ 17. Exchange OTT   │                    │                     │                  │
-      │    for OWT using   │                    │                     │                  │
-      │    TANK client     │                    │                     │                  │
-      │                    │                    │     18. GET /token  │                  │
-      │                    │                    │     (with signature)│                  │
-      │ (Same as guest flow steps 6-8)          │                     │                  │
-      │                    │                    │                     │                  │
-      │ 19. Set OWT cookie │                    │                     │                  │
-      │     & redirect to  │                    │                     │                  │
-      │     success        │                    │                     │                  │
-      │                    │                    │                     │                  │
-      ▼                    ▼                    ▼                      ▼                    ▼
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as User (Browser)
+    participant TP as Third-Party App
+    participant TA as TrustedAuth App
+    participant TS as TrustedAuth Service
+    participant UA as User Auth Service (Cognito)
+    participant DB as DynamoDB
+
+    User->>TP: Click "Login"
+    TP->>TA: Redirect GET /auth/authorise?apiKey=XXX&target=login&cb=CALLBACK
+    TA->>TA: Validate apiKey, render login form
+    User->>TA: Submit email + password
+    TA->>TS: POST /auth/login {email, password, apiKey}
+    TS->>UA: POST /auth {email, password}
+    UA->>UA: Validate credentials against Cognito
+    UA-->>TS: userToken
+    TS->>UA: GET /tokens?userToken=XXX
+    UA-->>TS: {wc_auth, wc_session, ...}
+    TS->>DB: Store TrustedParty_Tokens {OTT, OWT, PERSONAL, 8h TTL}
+    TS-->>TA: {owt, ott, authTokens, user}
+    TA-->>User: Redirect to CALLBACK?ott=XXX
+    User->>TP: GET CALLBACK?ott=XXX
+    TP->>TS: GET /auth/token?ott=XXX (HMAC signed)
+    TS-->>TP: {owt: JWT_TOKEN}
+    TP->>User: Set-Cookie: owt=JWT; HttpOnly; Secure
+    TP->>User: Redirect to authenticated page
 ```
 
 ### Detailed Steps
@@ -243,182 +154,100 @@ Third-Party App          Browser           TrustedAuth App      TrustedAuth Serv
    - Redirected to: `GET /auth/authorise?apiKey=XXX&target=login&cb=CALLBACK_URL`
 
 2. **Login Form Rendering**
-   - trustedauth-app receives request
-   - Validates apiKey
+   - trustedauth-app receives request, validates apiKey
    - Renders login form with email/password fields
 
 3. **Credential Submission**
    - User enters email and password
    - Form POSTed to trustedauth-app: `POST /auth/login`
-   - Body includes email and password
 
 4. **Credential Validation**
    - trustedauth-app calls trustedauth-service: `POST /auth/login`
-   - trustedauth-service calls user-auth-service with credentials
+   - trustedauth-service calls user-auth-service
    - user-auth-service validates against AWS Cognito
-   - If valid: returns user token
-   - If invalid: returns 401 error
+   - If valid: returns user token; if invalid: returns 401
 
 5. **Auth Token Fetching**
    - trustedauth-service calls user-auth-service: `GET /tokens?userToken=XXX`
    - Receives authentication cookies (wc_auth, wc_session, etc.)
 
 6. **JWT Generation**
-   - Creates JWT payload with user info:
-     ```json
-     {
-       "user": {
-         "id": "user-token-123",
-         "type": "PERSONAL"
-       },
-       "iat": 1696000000,
-       "exp": 1696028800
-     }
-     ```
+   ```json
+   {
+     "user": { "id": "user-token-123", "type": "PERSONAL" },
+     "iat": 1696000000,
+     "exp": 1696028800
+   }
+   ```
 
-7. **Token Storage**
-   - Stores in DynamoDB:
-     ```
-     TrustedParty_Tokens:
-     {
-       UserToken: user-token,
-       PartyId: party-id,
-       PartyToken: jwt-owt,
-       OneTimeToken: random-ott,
-       IssueTime: current-timestamp,
-       ExpiryTime: current-timestamp + 8h,
-       UserType: PERSONAL
-     }
-     ```
-
-8. **Callback Redirect**
-   - Redirects to third-party callback URL
-   - `GET CALLBACK_URL?ott=OTT_VALUE&owt=OWT_VALUE`
-
-9. **OTT/OWT Exchange** (Same as guest flow)
-   - Third-party backend uses TANK client
-   - Calls trustedauth-service with OTT
-   - HMAC signature validation
-   - Returns OWT
-
-10. **Session Establishment**
-    - Sets HTTP-only secure cookie with OWT
-    - User is logged in to third-party app
+7. **Token Storage & Callback** — same as guest flow steps 5–8
 
 ### Validation Checks
 
-```
-Login Validation Flow:
-    │
-    ├─ Email format valid?
-    │  └─ If NO → Return 400 "Invalid email"
-    │
-    ├─ Password not empty?
-    │  └─ If NO → Return 400 "Password required"
-    │
-    ├─ Credentials match Cognito?
-    │  ├─ If NO → Return 401 "Invalid credentials"
-    │  └─ If YES → Continue
-    │
-    ├─ User account active?
-    │  └─ If NO → Return 403 "Account suspended"
-    │
-    ├─ MFA required?
-    │  └─ If YES → Challenge user, verify MFA code
-    │
-    └─ Success → Generate tokens
+```mermaid
+flowchart TD
+    A[User submits credentials] --> B{Email format valid?}
+    B -->|No| C[400 'Invalid email']
+    B -->|Yes| D{Password not empty?}
+    D -->|No| E[400 'Password required']
+    D -->|Yes| F{Credentials match Cognito?}
+    F -->|No| G[401 'Invalid credentials']
+    F -->|Yes| H{Account active?}
+    H -->|No| I[403 'Account suspended']
+    H -->|Yes| J{MFA enabled?}
+    J -->|Yes| K[Challenge MFA code]
+    K --> L{MFA valid?}
+    L -->|No| M[401 'Invalid MFA']
+    L -->|Yes| N[Generate tokens]
+    J -->|No| N
 ```
 
 ---
 
 ## 3. Business Account Registration Flow
 
-### Sequence Diagram (Summary)
+### Sequence Diagram
 
-```
-Third-Party App          Browser           TrustedAuth App      TrustedAuth Service    User Auth Service
-      │                    │                     │                      │                    │
-      ├─ Redirect to /auth/authorise?target=register
-      │
-      │                    ├─ GET /auth/authorise ──>
-      │
-      │                    │   Render registration form
-      │                    │   (companyName, ABN, email, password, etc.)
-      │
-      │                    │   User enters details
-      │                    │
-      │                    │   POST /register/business
-      │                    │   {companyName, abn, email, password}
-      │                    │
-      │                    │        ├─ Validate ABN format ──>
-      │                    │        │                        │
-      │                    │        │ PUT /auth/register/business
-      │                    │        │                        ├─ Validate ABN (11 digits, checksum)
-      │                    │        │                        │
-      │                    │        │                        ├─ POST /register/business
-      │                    │        │                        ├────────────────────────>│
-      │                    │        │                        │  {companyName, abn,    │
-      │                    │        │                        │   email, password}     │
-      │                    │        │                        │                        │
-      │                    │        │                        │ (Account created in    │
-      │                    │        │                        │  Cognito)              │
-      │                    │        │                        │                        │
-      │                    │        │<───────────────────────┤ Return userToken       │
-      │                    │        │   userToken            │                        │
-      │                    │        │                        │                        │
-      │                    │        │ (Fetch auth tokens)    │                        │
-      │                    │        │ (Generate JWT)         │                        │
-      │                    │        │ (Store in DynamoDB)    │                        │
-      │                    │        │ (Return OTT)           │                        │
-      │                    │        │                        │                        │
-      │                    │<────── Redirect with OTT ─────────────────────────────>│
-      │
-      │ (Continue with OTT/OWT exchange)
-      │
-      ▼
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as User (Browser)
+    participant TP as Third-Party App
+    participant TA as TrustedAuth App
+    participant TS as TrustedAuth Service
+    participant UA as User Auth Service (Cognito)
+
+    User->>TP: Click "Register Business"
+    TP->>TA: Redirect GET /auth/authorise?apiKey=XXX&target=register
+    TA->>TA: Render registration form
+    User->>TA: Submit companyName, ABN, email, password
+    TA->>TS: PUT /auth/register/business {companyName, abn, email, password}
+    TS->>TS: Validate ABN (11 digits, checksum mod 89)
+    TS->>UA: POST /register/business {companyName, abn, email, password}
+    UA->>UA: Create Cognito account (userType=BUSINESS)
+    UA-->>TS: userToken
+    TS->>TS: Generate JWT {user: {id, type: BUSINESS}}
+    TS->>TS: Generate OTT + OWT, store in DynamoDB
+    TS-->>TA: {owt, ott, authTokens}
+    TA-->>User: Redirect to CALLBACK?ott=XXX
+    Note over TP: Continue with OTT→OWT exchange (same as login flow)
 ```
 
 ### Key Differences from Personal Registration
 
-1. **ABN Validation**
-   - Extract ABN from form
-   - Validate format: 11 digits
-   - Validate checksum algorithm
-   - Return 400 if invalid
+1. **ABN Validation** (before any upstream call)
+   - Must be exactly 11 digits
+   - Checksum: `sum = 10×(d[0]-1) + 1×d[1] + 3×d[2] + ... + 19×d[10]` — valid if `sum % 89 == 0`
+   - Returns 400 if invalid
 
-2. **Cognito User Type**
-   - User created with `userType: BUSINESS`
-   - Different attributes stored
+2. **Cognito User Type**: Created with `userType: BUSINESS`
 
-3. **JWT Payload**
+3. **JWT Payload**:
    ```json
-   {
-     "user": {
-       "id": "user-token-456",
-       "type": "BUSINESS"
-     }
-   }
+   { "user": { "id": "user-token-456", "type": "BUSINESS" } }
    ```
 
-4. **Account Features**
-   - Business name required
-   - ABN stored with account
-   - Can manage multiple users
-   - Business-specific features enabled
-
-### ABN Validation Algorithm
-
-```
-isValidAbn(abn):
-  1. Check if numeric
-  2. Check length = 11
-  3. Convert to digit array: [a, b, c, d, e, f, g, h, i, j, k]
-  4. Define weights: [10, 1, 3, 5, 7, 9, 11, 13, 15, 17, 19]
-  5. Calculate sum:
-     sum = 10*(a-1) + 1*b + 3*c + 5*d + 7*e + 9*f + 11*g + 13*h + 15*i + 17*j + 19*k
-  6. Check sum % 89 == 0
-  7. Return valid/invalid
-```
+4. **Account Features**: Business name, ABN stored; B2B-specific features enabled
 
 ---
 
@@ -426,54 +255,30 @@ isValidAbn(abn):
 
 ### Profile Fetch with Token Validation
 
-```
-Third-Party App                trustedauth-profile          trustedauth-service
-      │                                │                            │
-      ├─ GET /auth/customer/profile  │                            │
-      │   Cookie: owt=JWT_TOKEN       │                            │
-      │                               │                            │
-      │                               ├─ Extract OWT from cookie  │
-      │                               │                            │
-      │                               ├─ 1. Validate JWT signature│
-      │                               ├───────────────────────────>│
-      │                               │  GET /auth/token/validate │
-      │                               │  Header: x-owt            │
-      │                               │                            │
-      │                               │<─ 2. Validation result    │
-      │                               │  {valid: true, exp: ...}  │
-      │                               │                            │
-      │                               ├─ 3. Call upstream profile │
-      │                               │    API                     │
-      │                               │                            │
-      │<─ 4. Return user profile      │                            │
-      │  {userId, email, userName,     │                            │
-      │   firstName, lastName, ...}    │                            │
-      │                               │                            │
-      ▼                               ▼                            ▼
+```mermaid
+sequenceDiagram
+    autonumber
+    participant TP as Third-Party App
+    participant TPP as trustedauth-profile
+    participant TS as TrustedAuth Service
+
+    TP->>TPP: GET /auth/customer/profile<br/>Cookie: owt=JWT_TOKEN
+    TPP->>TPP: Extract OWT from cookie/header
+    TPP->>TS: POST /auth/token/validate<br/>Header: x-owt
+    TS->>TS: Verify JWT signature
+    TS->>TS: Check exp claim vs now
+    TS-->>TPP: {valid: true, userId, userType, exp}
+    TPP->>TPP: Call upstream profile API<br/>GET /v1/customers/account?userId=XXX
+    TPP-->>TP: {userId, email, userName, firstName,<br/>lastName, userType, custBP, orgBP}
 ```
 
 ### Validation Details
 
-1. **Extract Token**
-   - From cookie: `owt`
-   - From header: `x-owt`
-   - From query: Not allowed for security
-
-2. **Parse JWT**
-   - Extract header, payload, signature
-   - Validate JWT structure
-
-3. **Verify Signature**
-   - Extract public key from trusted party
-   - Compute HMAC-SHA512 on header.payload
-   - Compare with provided signature
-
-4. **Check Expiry**
-   - Extract `exp` claim from payload
-   - Compare with current timestamp
-   - Return 401 if expired
-
-5. **Return Validation Result**
+1. **Extract Token** — from cookie `owt`, header `x-owt` (query params not allowed)
+2. **Parse JWT** — validate structure, header, payload, signature
+3. **Verify Signature** — compute HMAC-SHA512 on header.payload, compare
+4. **Check Expiry** — compare `exp` claim against current timestamp
+5. **Return Result**:
    ```json
    {
      "valid": true,
@@ -485,80 +290,43 @@ Third-Party App                trustedauth-profile          trustedauth-service
 
 ### Keepalive Flow
 
-```
-Third-Party App          trustedauth-service
-      │                        │
-      ├─ POST /auth/keepalive  │
-      │  Header: x-owt         │
-      │                        │
-      │                        ├─ Validate token
-      │                        │
-      │                        ├─ Update expiry in DynamoDB
-      │                        │  Add 8 hours to current time
-      │                        │
-      │<─ Return new token     │
-      │  {owt, expiresIn}      │
-      │                        │
-      ▼                        ▼
+```mermaid
+sequenceDiagram
+    participant TP as Third-Party App
+    participant TS as TrustedAuth Service
+    participant DB as DynamoDB
+
+    TP->>TS: POST /auth/keepalive<br/>Header: x-owt
+    TS->>TS: Validate OWT token
+    TS->>DB: UPDATE ExpiryTime = now + 8h
+    TS-->>TP: {owt, expiresIn: 28800}
 ```
 
 ---
 
 ## 5. Request Signing Flow
 
-### HMAC-SHA512 Signature Verification
+### HMAC-SHA512 Signature Process
 
-```
-Client Side:
-┌─────────────────────────────────────────────────────────────┐
-│ 1. Prepare request data                                      │
-│    apiKey = "Izj5SZEe8b7L4vxG01N0"                         │
-│    secret = "OIHMFfAv24sInyNd6EOdzrVTRMxOtct8QXSOUV18"     │
-│                                                              │
-│ 2. Generate random nonce                                     │
-│    nonce = genRandomStr(32)                                  │
-│                                                              │
-│ 3. Create signing string                                     │
-│    signingString = apiKey + nonce                           │
-│                                                              │
-│ 4. Compute HMAC-SHA512                                      │
-│    signature = HMAC-SHA512(signingString, secret)           │
-│                                                              │
-│ 5. Add request headers                                       │
-│    x-ow-signature: <signature>                             │
-│    x-ow-nonce: <nonce>                                      │
-│    x-ow-signing-string: <signingString>                    │
-│                                                              │
-│ 6. Send HTTP request with signed headers                    │
-│    GET /auth/token?ott=OTT_VALUE                            │
-│    Headers: x-ow-signature, x-ow-nonce, x-ow-signing-string
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    subgraph Client["Client Side (TANK)"]
+        A1[apiKey, secretKey] --> A2[Generate random nonce]
+        A2 --> A3["Build signing string:\now-api-key={apiKey}&ow-nonce={nonce}&owt={token}"]
+        A3 --> A4["HMAC-SHA512(signingString, secret)"]
+        A4 --> A5["Set headers:\nx-ow-signature\nx-ow-nonce\nx-ow-signing-string"]
+        A5 --> A6["Send HTTP request"]
+    end
 
-Server Side:
-┌─────────────────────────────────────────────────────────────┐
-│ 1. Extract signature data from request                       │
-│    signature = headers['x-ow-signature']                     │
-│    nonce = headers['x-ow-nonce']                             │
-│    signingString = headers['x-ow-signing-string']           │
-│    apiKey = query['apiKey']                                 │
-│                                                              │
-│ 2. Lookup secret for apiKey in DynamoDB                     │
-│    TrustedParty_Api WHERE ApiKey = apiKey                  │
-│    secret = party.Secret                                    │
-│                                                              │
-│ 3. Recompute HMAC-SHA512                                   │
-│    computedSignature = HMAC-SHA512(signingString, secret)  │
-│                                                              │
-│ 4. Compare signatures                                        │
-│    if (signature === computedSignature)                      │
-│      Accept request                                          │
-│    else                                                      │
-│      Reject with 401 "Invalid signature"                    │
-│                                                              │
-│ 5. Additional checks                                         │
-│    - Nonce not previously used (replay attack prevention)   │
-│    - Request within acceptable time window                  │
-└─────────────────────────────────────────────────────────────┘
+    subgraph Server["Server Side (trustedauth-service)"]
+        B1["Extract headers:\nsignature, nonce, signingString, apiKey"] --> B2["Lookup party.Secret\nfrom DynamoDB by apiKey"]
+        B2 --> B3["Recompute HMAC-SHA512\n(signingString, party.Secret)"]
+        B3 --> B4{Signatures\nmatch?}
+        B4 -->|Yes| B5[Accept request]
+        B4 -->|No| B6[401 Invalid signature]
+    end
+
+    A6 --> B1
 ```
 
 ---
@@ -567,91 +335,46 @@ Server Side:
 
 ### Authentication Failure Sequence
 
-```
-User submits credentials
-        │
-        ▼
-Validate format
-        │
-   ┌────┴──────┐
-   │            │
-  YES          NO
-   │            │
-   ▼            ▼
-Continue    Return 400
-            "Invalid format"
-   │
-   ▼
-Call Cognito
-        │
-   ┌────┴──────────────┐
-   │                   │
-Valid              Invalid
-   │                   │
-   ▼                   ▼
-Continue           Return 401
-                   "Invalid credentials"
-                   │
-                   └─ Log failed attempt
-                   └─ Track for rate limiting
+```mermaid
+flowchart TD
+    A[User submits credentials] --> B{Format valid?}
+    B -->|No| C[400 'Invalid format']
+    B -->|Yes| D[Call Cognito]
+    D --> E{Valid credentials?}
+    E -->|No| F[401 'Invalid credentials']
+    F --> G[Log failed attempt]
+    G --> H{Rate limit exceeded?}
+    H -->|Yes| I[429 'Too many attempts']
+    H -->|No| J[Return error to user]
+    E -->|Yes| K[Continue — generate tokens]
 ```
 
 ### Token Expiry Handling
 
-```
-Request with OWT cookie
-        │
-        ▼
-Extract and parse JWT
-        │
-        ▼
-Check expiry claim
-        │
-   ┌────┴──────────┐
-   │               │
-Valid           Expired
-   │               │
-   ▼               ▼
-Continue       Return 401
-               "Token expired"
-               │
-               └─ Client should:
-                  1. Clear cookie
-                  2. Redirect to login
-                  3. Show "Session expired" message
+```mermaid
+flowchart TD
+    A[Request with OWT cookie] --> B[Extract and parse JWT]
+    B --> C{exp claim > now?}
+    C -->|Valid| D[Continue request]
+    C -->|Expired| E[401 'Token expired']
+    E --> F[Client: Clear cookie]
+    F --> G[Client: Redirect to login]
+    G --> H[Client: Show 'Session expired' message]
 ```
 
 ### Signature Validation Failure
 
-```
-Request received
-        │
-        ▼
-Extract signature, nonce, apiKey
-        │
-        ▼
-Lookup party secret
-        │
-   ┌────┴──────────────┐
-   │                   │
-Found            Not found
-   │                   │
-   ▼                   ▼
-Continue           Return 401
-                   "Invalid apiKey"
-   │
-   ▼
-Recompute HMAC-SHA512
-        │
-   ┌────┴──────────────┐
-   │                   │
-Match            No match
-   │                   │
-   ▼                   ▼
-Accept            Return 401
-request           "Invalid signature"
-                  │
-                  └─ Security log event
+```mermaid
+flowchart TD
+    A[Request received] --> B[Extract signature, nonce, apiKey]
+    B --> C{apiKey found\nin DynamoDB?}
+    C -->|No| D[401 'Invalid apiKey']
+    C -->|Yes| E[Retrieve party.Secret]
+    E --> F[Recompute HMAC-SHA512]
+    F --> G{Signatures\nmatch?}
+    G -->|Yes| H[Accept request]
+    G -->|No| I[401 'Invalid signature']
+    I --> J[Log security event]
 ```
 
 ---
@@ -660,62 +383,24 @@ request           "Invalid signature"
 
 ### Step-by-Step Interaction
 
-```
-Third-Party App
-    │
-    ├─ 1. Load script
-    │   <script src="authclient.min.js"></script>
-    │
-    ├─ 2. Add <ow-auth> element
-    │   <ow-auth apikey="XXX" 
-    │            onlogin="handleLogin"
-    │            mode="test"
-    │            target="login"></ow-auth>
-    │
-    └─ 3. on DOMContentLoaded
-        │
-        ├─ authclient.js initializes
-        │
-        ├─ Creates iframe
-        │  <iframe src="https://ofwtest.officeworks.com.au/auth/login
-        │               ?apiKey=XXX
-        │               &target=login
-        │               &btnLabel=Login
-        │               &debug=false"
-        │           id="ow-auth"></iframe>
-        │
-        ├─ Setup postMessage listener
-        │  window.addEventListener('message', handler)
-        │
-        └─ Wait for user interaction
-        
-User logs in within iframe
-        │
-        ├─ iframe calls parent via postMessage
-        │  window.parent.postMessage({
-        │    type: 'login',
-        │    guest: false,
-        │    token: 'OWT_VALUE'
-        │  }, 'https://third-party.com')
-        │
-        └─ Parent app receives message
-        
-Parent window message handler
-        │
-        ├─ Validate message origin
-        │
-        ├─ Extract token
-        │
-        ├─ Call onlogin callback
-        │  window.handleLogin({type: 'login', token: 'OWT'})
-        │
-        ├─ Set cookie in parent domain
-        │  document.cookie = "owt=OWT_VALUE; Path=/; HttpOnly; Secure"
-        │  (Note: HttpOnly must be set server-side)
-        │
-        ├─ Hide iframe
-        │
-        └─ Redirect to authenticated page
+```mermaid
+sequenceDiagram
+    autonumber
+    participant HTML as Third-Party Page
+    participant AC as authclient.js
+    participant IFrame as TrustedAuth App (iframe)
+    participant TP as Third-Party Backend
+
+    HTML->>AC: Load authclient.min.js from S3/CDN
+    HTML->>AC: Parse <ow-auth apikey="XXX" onlogin="handleLogin" mode="test">
+    AC->>IFrame: Create <iframe src="https://ofwtest.officeworks.com.au/auth/login?apiKey=XXX&target=login">
+    AC->>HTML: window.addEventListener('message', handler)
+    Note over IFrame: User logs in within iframe
+    IFrame->>HTML: window.parent.postMessage({type:'login', guest:false, token:'OWT'})
+    HTML->>HTML: Validate event.origin
+    HTML->>HTML: Call window.handleLogin({type:'login', token:'OWT'})
+    HTML->>TP: Backend sets owt cookie (HttpOnly)
+    HTML->>HTML: Hide iframe, redirect to authenticated page
 ```
 
 ### Message Protocol
@@ -732,103 +417,50 @@ Parent window message handler
 
 ## 8. React/Redux Integration Flow (TARAS)
 
-### Component Initialization
+### Component Initialization and Auth Middleware
 
-```
-App Component Renders
-        │
-        ├─ 1. Dispatch SET_AUTH_CONFIG
-        │   {
-        │     type: 'SET_AUTH_CONFIG',
-        │     payload: {
-        │       apiKey: 'XXX',
-        │       serverHostname: 'https://ofwtest.officeworks.com.au'
-        │     }
-        │   }
-        │
-        ├─ 2. OWAuthReducer updates state
-        │   owauth.config = {apiKey, serverHostname}
-        │
-        └─ 3. Render OWAuth component
-           <OWAuth 
-             apiKey="XXX"
-             serverHostname="https://ofwtest.officeworks.com.au"
-             width={600}
-             height={400}
-           />
+```mermaid
+sequenceDiagram
+    autonumber
+    participant App as React App
+    participant MW as OWAuthMiddleware
+    participant Reducer as OWAuthReducer
+    participant Comp as OWAuth Component
+    participant IFrame as TrustedAuth App (iframe)
+    participant Profile as Profile API
 
-OWAuth Component
-        │
-        ├─ Renders <iframe>
-        │  Points to authserver/auth/login?apiKey=XXX
-        │
-        └─ Setup postMessage listener
-           window.addEventListener('message', handleAuthMessage)
+    App->>Reducer: Dispatch SET_AUTH_CONFIG {apiKey, serverHostname}
+    App->>Comp: Render <OWAuth apiKey="XXX" serverHostname="...">
+    Comp->>IFrame: Create <iframe src="...auth/login?apiKey=XXX">
 
-User Interacts
-        │
-        ├─ Logs in within iframe
-        │
-        ├─ iframe posts message
-        │
-        ├─ OWAuth receives message
-        │
-        ├─ Dispatch authentication action
-        │  store.dispatch({
-        │    type: 'SET_LOGIN_STATUS',
-        │    payload: {authenticated: true, token: 'OWT'}
-        │  })
-        │
-        └─ OWAuthReducer updates state
-           owauth.isLoggedIn = true
-           owauth.showModal = false
-
-Redux Middleware (OWAuthMiddleware)
-        │
-        ├─ Intercepts actions
-        │
-        ├─ Checks if action matches isApplicable
-        │
-        ├─ If user not logged in and autoLogin=true:
-        │  - Dispatch SHOW_LOGIN
-        │  - Wait for authentication
-        │
-        ├─ Fetch user profile
-        │  axios.get(profileURI)
-        │
-        ├─ Dispatch SET_USER_PROFILE
-        │  {
-        │    type: 'SET_USER_PROFILE',
-        │    payload: {userId, email, firstName, lastName, ...}
-        │  }
-        │
-        └─ Re-dispatch original action
+    Note over App,MW: User dispatches a protected action
+    App->>MW: Dispatch action (matches isApplicable)
+    MW->>Reducer: Check owauth.isLoggedIn
+    alt Not logged in and autoLogin=true
+        MW->>Reducer: Dispatch SHOW_LOGIN
+        Reducer-->>Comp: showModal = true
+        IFrame->>Comp: postMessage {type:'login', token:'OWT'}
+        Comp->>Reducer: Dispatch SET_LOGIN_STATUS {authenticated:true}
+    end
+    MW->>Profile: GET profileURI
+    Profile-->>MW: UserProfile
+    MW->>Reducer: Dispatch SET_USER_PROFILE
+    MW->>App: Re-dispatch original action
 ```
 
-### State Management
+### Redux State Transitions
 
-```
-Redux State (owauth reducer):
-{
-  isLoggedIn: boolean,
-  userProfile: {
-    userId: string,
-    userName: string,
-    email: string,
-    firstName: string,
-    lastName: string,
-    userType: string,
-    custBP: string,
-    orgBP: string
-  } | null,
-  showModal: boolean,
-  error: string | null,
-  isLoading: boolean,
-  config: {
-    apiKey: string,
-    serverHostname: string
-  }
-}
+```mermaid
+stateDiagram-v2
+    [*] --> Unauthenticated: App initialises
+    Unauthenticated --> ShowingLogin: SHOW_LOGIN dispatched
+    ShowingLogin --> Authenticating: User submits credentials in iframe
+    Authenticating --> Authenticated: SET_LOGIN_STATUS (success)
+    Authenticating --> ShowingLogin: SET_ERROR (failure)
+    Authenticated --> LoadingProfile: fetchUserProfile triggered
+    LoadingProfile --> Ready: SET_USER_PROFILE
+    Ready --> Unauthenticated: Logout / token expired
+    Ready --> Ready: Keepalive / profile refresh
 ```
 
 ---
@@ -837,46 +469,32 @@ Redux State (owauth reducer):
 
 ### Session Termination
 
-```
-User clicks logout
-        │
-        ├─ 1. Client-side: Clear cookies
-        │   document.cookie = "owt=; expires=Thu, 01 Jan 1970 00:00:00 UTC"
-        │
-        ├─ 2. Optional: Server-side logout
-        │   POST /auth/logout (if supported)
-        │
-        ├─ 3. Clear local storage/session storage
-        │
-        ├─ 4. Dispatch LOGOUT action (Redux)
-        │   owauth.isLoggedIn = false
-        │   owauth.userProfile = null
-        │
-        └─ 5. Redirect to login or home page
-
-Backend considerations:
-        │
-        ├─ Delete session from DynamoDB
-        │  (Optional - tokens are time-limited)
-        │
-        ├─ Blacklist token in cache
-        │  (Optional - prevents replay)
-        │
-        └─ Log logout event
+```mermaid
+flowchart TD
+    A[User clicks logout] --> B[Clear owt cookie\ndocument.cookie expires in past]
+    B --> C{Server-side logout\nendpoint available?}
+    C -->|Yes| D[POST /auth/logout]
+    D --> E[Delete session from DynamoDB]
+    C -->|No| F[Token expires naturally after 8h]
+    E --> G[Dispatch LOGOUT Redux action]
+    F --> G
+    G --> H[owauth.isLoggedIn = false\nowauth.userProfile = null]
+    H --> I[Clear local/session storage]
+    I --> J[Redirect to login or home page]
 ```
 
 ---
 
 ## Summary Table
 
-| Flow | Entry Point | Exit Token | Time | Notes |
-|------|------------|-----------|------|-------|
-| Guest | `/auth/authorise?target=guest` | OWT via callback | Immediate | Fastest flow |
+| Flow | Entry Point | Exit Token | Typical Duration | Notes |
+|------|------------|-----------|-----------------|-------|
+| Guest | `/auth/authorise?target=guest` | OWT via callback | Immediate | Fastest — no credentials needed |
 | Login | `/auth/authorise?target=login` | OWT via callback | Credential validation time | Standard flow |
 | Register | `/auth/authorise?target=register` | OWT via callback | Account creation time | Requires form fields |
-| Token Exchange | Client exchangeToken() | OWT from API | <100ms | Server-side only |
-| Profile Fetch | GET /profile with OWT | User profile | <100ms | Requires valid OWT |
-| Keepalive | POST /keepalive | Updated OWT | <50ms | Extends session |
+| Token Exchange | TANK `exchangeToken()` | OWT from API | <100ms | Server-side only |
+| Profile Fetch | `GET /auth/customer/profile` with OWT | User profile JSON | <100ms | Requires valid OWT |
+| Keepalive | `POST /auth/keepalive` | Extended OWT | <50ms | Resets 8-hour window |
 
 ---
 

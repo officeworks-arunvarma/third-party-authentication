@@ -90,7 +90,7 @@ Detailed sequence diagrams and step-by-step flows for all authentication scenari
 8. **Logout Flow** - Session termination
 
 **Features**:
-- ASCII sequence diagrams
+- Mermaid sequence diagrams (rendered by GitHub/GitLab/compatible viewers)
 - Detailed step-by-step instructions
 - Message formats and signatures
 - Error handling paths
@@ -364,8 +364,8 @@ Third-party applications that integrate with the system. Each party has:
 
 ### Document Structure
 - Markdown files use standard formatting
-- ASCII diagrams for architecture
-- Sequence diagrams for flows
+- PlantUML C4 diagrams for architecture (C1/C2/C3)
+- Mermaid diagrams for sequence, flow, and state diagrams
 - JSON for structured data
 - Tables for comparisons
 - Code examples for technical details

@@ -4,131 +4,63 @@
 
 The Officeworks Third-Party Authentication System is an OAuth-like authentication platform that enables third-party and non-core applications to authenticate customers. The system is built on a microservices architecture using HMAC-SHA512 signature authentication with AWS infrastructure.
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          External Applications                               │
-│                    (Third-Party Customers/Partners)                          │
-│                                                                              │
-│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐          │
-│  │  App Instance 1  │  │  App Instance 2  │  │  App Instance N  │          │
-│  │  (React/Node)    │  │  (Node.js)       │  │  (Any Stack)     │          │
-│  └────────┬─────────┘  └────────┬─────────┘  └────────┬─────────┘          │
-│           │                      │                      │                    │
-└───────────┼──────────────────────┼──────────────────────┼──────────────────┘
-            │                      │                      │
-            │ OAuth-like flow      │ Uses client library  │ Validates tokens
-            │ (HMAC-SHA512)        │ (TANK or TARAS)      │ (signature-based)
-            │                      │                      │
-┌───────────▼──────────────────────▼──────────────────────▼──────────────────┐
-│              Officeworks Third-Party Authentication System                  │
-│                                                                              │
-│  ┌──────────────────────────────────────────────────────────────────────┐  │
-│  │                    trustedauth-app (Port 3001)                       │  │
-│  │          OAuth-like UI and Authorization Flow Handler                │  │
-│  │                                                                       │  │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐               │  │
-│  │  │   Login UI   │  │ Register UI  │  │  Guest Flow  │               │  │
-│  │  └──────────────┘  └──────────────┘  └──────────────┘               │  │
-│  └──────────────┬───────────────────────────────────────────────────────┘  │
-│                 │                                                           │
-│  ┌──────────────▼───────────────────────────────────────────────────────┐  │
-│  │                trustedauth-service (Port 3002)                       │  │
-│  │          Core Backend API - Token Generation & Validation             │  │
-│  │                                                                       │  │
-│  │  ┌─────────────────────┐  ┌─────────────────────┐                  │  │
-│  │  │  Trusted Party      │  │  User               │                  │  │
-│  │  │  Admin Routes       │  │  Admin Routes       │                  │  │
-│  │  │  /auth/tp/*         │  │  /auth/user/*       │                  │  │
-│  │  └─────────────────────┘  └─────────────────────┘                  │  │
-│  │                                                                       │  │
-│  │  ┌─────────────────────┐  ┌─────────────────────┐                  │  │
-│  │  │  Auth Routes        │  │  Token Generation   │                  │  │
-│  │  │  /auth/login        │  │  & Validation       │                  │  │
-│  │  │  /auth/register     │  │  /auth/token/*      │                  │  │
-│  │  │  /auth/token/guest  │  │  /auth/keepalive    │                  │  │
-│  │  └─────────────────────┘  └─────────────────────┘                  │  │
-│  └──────────────┬───────────────────────────────────────────────────────┘  │
-│                 │                                                           │
-│  ┌──────────────▼───────────────────────────────────────────────────────┐  │
-│  │                trustedauth-profile (Port 3004)                       │  │
-│  │                  Customer Profile Service                            │  │
-│  │                                                                       │  │
-│  │  ┌──────────────────────────────────────────┐                       │  │
-│  │  │  GET /auth/customer/profile (OWT token)  │                       │  │
-│  │  │  Returns authenticated user profile      │                       │  │
-│  │  └──────────────────────────────────────────┘                       │  │
-│  └──────────────┬───────────────────────────────────────────────────────┘  │
-│                 │                                                           │
-│  ┌──────────────▼───────────────────────────────────────────────────────┐  │
-│  │                   user-auth-service (AWS ECS)                        │  │
-│  │            Main User Authentication & Authorization Service           │  │
-│  │                                                                       │  │
-│  │  ┌──────────────────────────────────────────┐                       │  │
-│  │  │  AWS Cognito Integration                 │                       │  │
-│  │  │  - User Pool Management                  │                       │  │
-│  │  │  - Credential Validation                 │                       │  │
-│  │  │  - Session Management                    │                       │  │
-│  │  └──────────────────────────────────────────┘                       │  │
-│  └──────────────┬───────────────────────────────────────────────────────┘  │
-│                 │                                                           │
-│  ┌──────────────▼───────────────────────────────────────────────────────┐  │
-│  │               Client Libraries (NPM Packages)                        │  │
-│  │                                                                       │  │
-│  │  ┌─────────────────────────┐  ┌──────────────────────────────┐      │  │
-│  │  │ trustedauth-node-client │  │ trustedauth-react-redux      │      │  │
-│  │  │ (TANK)                  │  │ (TARAS)                      │      │  │
-│  │  │                         │  │                              │      │  │
-│  │  │ Server-side integration │  │ React/Redux integration      │      │  │
-│  │  │ - Client class          │  │ - OWAuth component           │      │  │
-│  │  │ - Express middleware    │  │ - Redux middleware           │      │  │
-│  │  │ - getProfile()          │  │ - Reducer                    │      │  │
-│  │  │ - exchangeToken()       │  │ - Modal UI                   │      │  │
-│  │  │ - validateToken()       │  │                              │      │  │
-│  │  └─────────────────────────┘  └──────────────────────────────┘      │  │
-│  │                                                                       │  │
-│  │  ┌──────────────────────────────────────────────────────────┐       │  │
-│  │  │ trustedauth-client (Browser Client)                      │       │  │
-│  │  │ - authclient.min.js                                      │       │  │
-│  │  │ - Custom <ow-auth> HTML element                          │       │  │
-│  │  │ - Iframe-based authentication UI                         │       │  │
-│  │  │ - window.postMessage communication                       │       │  │
-│  │  └──────────────────────────────────────────────────────────┘       │  │
-│  └────────────────────────────────────────────────────────────────────┘  │
-│                                 │                                        │
-└─────────────────────────────────┼────────────────────────────────────────┘
-                                  │
-                    Signature-based request validation
-                    DynamoDB operations
-                    AWS service integration
-                                  │
-┌─────────────────────────────────▼────────────────────────────────────────┐
-│                    AWS Infrastructure (ap-southeast-2)                    │
-│                                                                            │
-│  ┌──────────────────────────────┐  ┌─────────────────────────────────┐  │
-│  │  AWS DynamoDB                │  │  AWS Cognito                    │  │
-│  │  ────────────────────────    │  │  ──────────────────────────────  │  │
-│  │  - TrustedParty_Api          │  │  - User Pools                   │  │
-│  │  - TrustedParty_Tokens       │  │  - User Credentials             │  │
-│  │  - TrustedParty_UserToken    │  │  - Session Management           │  │
-│  │  - Indexes for fast queries  │  │  - Multi-factor Authentication  │  │
-│  └──────────────────────────────┘  └─────────────────────────────────┘  │
-│                                                                            │
-│  ┌──────────────────────────────┐  ┌─────────────────────────────────┐  │
-│  │  AWS Elastic Beanstalk       │  │  AWS ECS                        │  │
-│  │  ──────────────────────────  │  │  ──────────────────────────────  │  │
-│  │  - Hosts trustedauth-service │  │  - Hosts user-auth-service      │  │
-│  │  - Auto-scaling              │  │  - Container orchestration      │  │
-│  │  - Load balancing            │  │  - Service discovery            │  │
-│  └──────────────────────────────┘  └─────────────────────────────────┘  │
-│                                                                            │
-│  ┌────────────────────────────────────────────────────────────────────┐  │
-│  │  AWS S3                                                            │  │
-│  │  ────────────────────────────────────────────────────────────────  │  │
-│  │  - trustedauth-client CDN distribution                            │  │
-│  │  - authclient.min.js serving                                      │  │
-│  └────────────────────────────────────────────────────────────────────┘  │
-│                                                                            │
-└────────────────────────────────────────────────────────────────────────────┘
+```plantuml
+@startuml C1_Context
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+LAYOUT_WITH_LEGEND()
+
+title C1 Context Diagram — Officeworks Third-Party Authentication System
+
+Person(customer, "Customer", "Officeworks customer\nauthenticating via a partner app")
+Person(admin, "Web Wizards Team", "Registers and manages\ntrusted party credentials")
+
+System_Boundary(tp_apps, "Third-Party Applications") {
+    System_Ext(tp_react, "React/Node App", "Partner app using TARAS\nor TANK client library")
+    System_Ext(tp_browser, "Browser App", "Partner app using\nauthclient.js (iframe)")
+    System_Ext(tp_other, "Any Stack App", "Partner app using\ndirect API calls")
+}
+
+System_Boundary(ow_auth, "Officeworks TrustedAuth System\n[DEPRECATED — Jan 2026]") {
+    System(trustedauth_app, "trustedauth-app", "OAuth-like UI & authorization\nflow handler (Port 3001/3003)")
+    System(trustedauth_service, "trustedauth-service", "Core backend API — token\ngeneration & validation (Port 3002)")
+    System(trustedauth_profile, "trustedauth-profile", "Customer profile endpoint\n(Port 3004)")
+    System(user_auth_service, "user-auth-service", "Main user authentication\nvia AWS Cognito (Port 3000)")
+}
+
+System_Boundary(client_libs, "Client Libraries (NPM)") {
+    System(tank, "trustedauth-node-client\n(TANK)", "Server-side Node.js integration\nlibrary")
+    System(taras, "trustedauth-react-redux\n(TARAS)", "React/Redux component\nlibrary")
+    System(browser_client, "trustedauth-client", "Browser JS library\n(iframe + postMessage, CDN/S3)")
+}
+
+System_Ext(cognito, "AWS Cognito", "User pool management,\ncredential validation")
+System_Ext(dynamodb, "AWS DynamoDB", "Token and trusted party\nconfiguration storage")
+System_Ext(s3, "AWS S3", "CDN distribution for\nauthclient.min.js")
+
+Rel(customer, tp_react, "Authenticates via")
+Rel(customer, tp_browser, "Authenticates via")
+Rel(admin, trustedauth_service, "Manages trusted parties\nvia admin API", "HTTPS + X-OW-ADMIN-KEY")
+
+Rel(tp_react, tank, "Uses")
+Rel(tp_react, taras, "Uses")
+Rel(tp_browser, browser_client, "Loads from CDN")
+
+Rel(browser_client, trustedauth_app, "Renders login UI in iframe", "HTTPS")
+Rel(tank, trustedauth_service, "Exchanges OTT, validates tokens", "HTTPS + HMAC-SHA512")
+Rel(tank, trustedauth_profile, "Fetches user profile", "HTTPS")
+Rel(taras, trustedauth_app, "Renders login UI in iframe", "HTTPS")
+
+Rel(trustedauth_app, trustedauth_service, "Generates tokens", "HTTP internal")
+Rel(trustedauth_app, user_auth_service, "Validates credentials", "HTTP internal")
+Rel(trustedauth_service, user_auth_service, "Validates credentials,\nfetches auth tokens", "HTTP internal")
+Rel(trustedauth_service, dynamodb, "Stores/reads tokens\nand party config", "AWS SDK")
+Rel(trustedauth_profile, user_auth_service, "Fetches user profile", "HTTP internal")
+
+Rel(user_auth_service, cognito, "Validates credentials,\nmanages users", "AWS SDK")
+Rel(browser_client, s3, "Served from", "HTTPS")
+
+@enduml
 ```
 
 ## System Components
@@ -177,138 +109,79 @@ The Officeworks Third-Party Authentication System is an OAuth-like authenticatio
 
 ## Request Flow with Authentication
 
-```
-Third-Party App
-    │
-    ├─ 1. Redirect to /auth/authorise?apiKey=XXX
-    │
-    ▼
-TrustedAuth App
-    │
-    ├─ 2. Display login/register/guest UI
-    │
-    ▼
-User Authentication
-    │
-    ├─ 3. Validate credentials with user-auth-service via Cognito
-    │
-    ▼
-Token Generation (trustedauth-service)
-    │
-    ├─ 4. Generate JWT with user payload
-    ├─ 5. Store in DynamoDB (TrustedParty_Tokens)
-    ├─ 6. Generate One-Time Token (OTT)
-    │
-    ▼
-Callback
-    │
-    ├─ 7. Redirect to third-party callback with OTT
-    │
-    ▼
-Third-Party Backend (using TANK)
-    │
-    ├─ 8. Exchange OTT for OWT (POST /auth/token)
-    ├─ 9. Sign request with HMAC-SHA512
-    ├─ 10. Include apiKey, nonce, signature in headers
-    │
-    ▼
-TrustedAuth Service
-    │
-    ├─ 11. Validate HMAC-SHA512 signature
-    ├─ 12. Return OWT token
-    │
-    ▼
-Third-Party App
-    │
-    ├─ 13. Set OWT as HTTP-only secure cookie
-    ├─ 14. User is authenticated
-    │
-    ▼
-Profile Requests
-    │
-    ├─ 15. GET /auth/customer/profile with OWT
-    ├─ 16. Returns user profile from trustedauth-profile service
-    │
-    ▼
-Subsequent Requests
-    │
-    ├─ 17. Requests include OWT cookie
-    ├─ 18. Middleware/Express handler validates token
-    ├─ 19. Optional: POST /auth/keepalive to extend session
+```mermaid
+sequenceDiagram
+    participant TP as Third-Party App
+    participant TA as TrustedAuth App
+    participant TS as TrustedAuth Service
+    participant UA as User Auth Service
+    participant DB as DynamoDB
+
+    TP->>TA: 1. Redirect to /auth/authorise?apiKey=XXX
+    TA->>TA: 2. Display login/register/guest UI
+    TA->>UA: 3. Validate credentials (via Cognito)
+    UA-->>TA: User token
+    TA->>TS: 4. Generate JWT with user payload
+    TS->>DB: 5. Store in TrustedParty_Tokens
+    TS-->>TA: 6. Return OTT + OWT
+    TA-->>TP: 7. Redirect to callback?ott=XXX
+    TP->>TS: 8. Exchange OTT → POST /auth/token (HMAC-SHA512 signed)
+    TS-->>TP: 9. Return OWT
+    TP->>TP: 10. Set OWT as HTTP-only secure cookie
+    TP->>TS: 11. GET /auth/customer/profile (OWT cookie)
+    TS-->>TP: 12. User profile
+    Note over TP: 13. Optional: POST /auth/keepalive to extend session
 ```
 
 ## Deployment Architecture
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      AWS Region: ap-southeast-2             │
-│                                                              │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │         Elastic Beanstalk Environment                  │ │
-│  │                                                         │ │
-│  │  ┌─────────────────┐  ┌─────────────────────────────┐ │ │
-│  │  │ Load Balancer   │  │ Auto Scaling Group          │ │ │
-│  │  └────────┬────────┘  │                             │ │ │
-│  │           │           │ ┌───────────────────────┐  │ │ │
-│  │           │           │ │ EC2 Instance (Node.js)│  │ │ │
-│  │           └───────────┼─┤ trustedauth-app       │  │ │ │
-│  │                       │ │ trustedauth-service   │  │ │ │
-│  │                       │ │ trustedauth-profile   │  │ │ │
-│  │                       │ └───────────────────────┘  │ │ │
-│  │                       │                             │ │ │
-│  │                       │ ┌───────────────────────┐  │ │ │
-│  │                       │ │ EC2 Instance (Node.js)│  │ │ │
-│  │                       │ │ trustedauth-app       │  │ │ │
-│  │                       │ │ trustedauth-service   │  │ │ │
-│  │                       │ │ trustedauth-profile   │  │ │ │
-│  │                       │ └───────────────────────┘  │ │ │
-│  │                       └─────────────────────────────┘ │ │
-│  └────────────────────────────────────────────────────────┘ │
-│                                                              │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │         ECS Cluster (user-auth-service)               │ │
-│  │                                                         │ │
-│  │  ┌─────────────────┐  ┌─────────────────────────────┐ │ │
-│  │  │ Load Balancer   │  │ Task Definitions            │ │ │
-│  │  └────────┬────────┘  │                             │ │ │
-│  │           │           │ ┌───────────────────────┐  │ │ │
-│  │           │           │ │ ECS Task (Container)  │  │ │ │
-│  │           └───────────┼─┤ user-auth-service     │  │ │ │
-│  │                       │ │ Port 3003             │  │ │ │
-│  │                       │ └───────────────────────┘  │ │ │
-│  │                       │                             │ │ │
-│  │                       │ ┌───────────────────────┐  │ │ │
-│  │                       │ │ ECS Task (Container)  │  │ │ │
-│  │                       │ │ user-auth-service     │  │ │ │
-│  │                       │ │ Port 3003             │  │ │ │
-│  │                       │ └───────────────────────┘  │ │ │
-│  │                       └─────────────────────────────┘ │ │
-│  └────────────────────────────────────────────────────────┘ │
-│                                                              │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │         Data Services                                 │ │
-│  │                                                         │ │
-│  │  ┌─────────────────────┐ ┌─────────────────────────┐  │ │
-│  │  │  DynamoDB           │ │ Cognito User Pool       │  │ │
-│  │  │                     │ │                         │  │ │
-│  │  │ - TrustedParty_Api  │ │ - User credentials      │  │ │
-│  │  │ - TrustedParty_Token│ │ - Session management    │  │ │
-│  │  │ - UserToken         │ │ - MFA options           │  │ │
-│  │  └─────────────────────┘ └─────────────────────────┘  │ │
-│  └────────────────────────────────────────────────────────┘ │
-│                                                              │
-│  ┌────────────────────────────────────────────────────────┐ │
-│  │         Content Distribution                          │ │
-│  │                                                         │ │
-│  │  ┌─────────────────────────────────────────────────┐  │ │
-│  │  │  S3 Bucket + CloudFront CDN                     │  │ │
-│  │  │  - authclient.min.js                           │  │ │
-│  │  │  - trustedauth-client distribution             │  │ │
-│  │  │  - Endpoint: s3-ap-southeast-2.amazonaws.com   │  │ │
-│  │  └─────────────────────────────────────────────────┘  │ │
-│  └────────────────────────────────────────────────────────┘ │
-│                                                              │
-└─────────────────────────────────────────────────────────────┘
+```plantuml
+@startuml Deployment
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Deployment.puml
+
+LAYOUT_WITH_LEGEND()
+
+title Deployment Architecture — AWS ap-southeast-2
+
+Deployment_Node(aws, "AWS ap-southeast-2") {
+
+    Deployment_Node(eb, "Elastic Beanstalk Environment") {
+        Deployment_Node(lb, "Load Balancer") {
+        }
+        Deployment_Node(asg, "Auto Scaling Group") {
+            Deployment_Node(ec2a, "EC2 Instance A") {
+                Container(app_a, "trustedauth-app", "Node.js :3001")
+                Container(svc_a, "trustedauth-service", "Node.js :3002")
+                Container(profile_a, "trustedauth-profile", "Node.js :3004")
+            }
+            Deployment_Node(ec2b, "EC2 Instance B") {
+                Container(app_b, "trustedauth-app", "Node.js :3001")
+                Container(svc_b, "trustedauth-service", "Node.js :3002")
+                Container(profile_b, "trustedauth-profile", "Node.js :3004")
+            }
+        }
+    }
+
+    Deployment_Node(ecs, "ECS Cluster") {
+        Deployment_Node(task1, "ECS Task 1") {
+            Container(uas1, "user-auth-service", "Node.js+TS :3000")
+        }
+        Deployment_Node(task2, "ECS Task 2") {
+            Container(uas2, "user-auth-service", "Node.js+TS :3000")
+        }
+    }
+
+    Deployment_Node(data, "Data Services") {
+        ContainerDb(dynamo, "DynamoDB", "TrustedParty_Api\nTrustedParty_Tokens\nTrustedParty_UserToken")
+        ContainerDb(cognito, "Cognito User Pool", "User credentials\nSession management\nMFA")
+    }
+
+    Deployment_Node(cdn, "Content Distribution") {
+        Container(s3, "S3 Bucket", "authclient.min.js\nCDN distribution")
+    }
+}
+
+@enduml
 ```
 
 ## Integration Patterns

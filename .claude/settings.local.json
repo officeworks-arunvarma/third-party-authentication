@@ -11,7 +11,10 @@
       "Bash(ssh -T git@github.com)",
       "Bash(git branch:*)",
       "Bash(git push:*)",
-      "Bash(gh repo:*)"
+      "Bash(gh repo:*)",
+      "Bash(sed -i '' 's/- ASCII sequence diagrams/- Mermaid sequence diagrams \\(rendered by GitHub\\\\/GitLab\\\\/compatible viewers\\)/' README.md)",
+      "Bash(sed -i '' 's/- ASCII diagrams for architecture/- PlantUML C4 diagrams for architecture \\(C1\\\\/C2\\\\/C3\\)\\\\n- Mermaid diagrams for sequence, flow, and state diagrams/' README.md)",
+      "Bash(sed:*)"
     ]
   }
 }
