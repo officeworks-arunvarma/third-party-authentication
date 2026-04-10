@@ -1,0 +1,21 @@
+[submodule "trustedauth-node-client"]
+	path = trustedauth-node-client
+	url = ./trustedauth-node-client
+[submodule "trustedauth-react-redux"]
+	path = trustedauth-react-redux
+	url = ./trustedauth-react-redux
+[submodule "trustedauth-service"]
+	path = trustedauth-service
+	url = ./trustedauth-service
+[submodule "user-auth-service"]
+	path = user-auth-service
+	url = ./user-auth-service
+[submodule "trustedauth-profile"]
+	path = trustedauth-profile
+	url = ./trustedauth-profile
+[submodule "trustedauth-client"]
+	path = trustedauth-client
+	url = ./trustedauth-client
+[submodule "trustedauth-app"]
+	path = trustedauth-app
+	url = ./trustedauth-app

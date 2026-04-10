@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git init:*)",
+      "Bash(git submodule:*)",
+      "Bash(echo \"submodule add returned: $?\")",
+      "Bash(git add:*)"
+    ]
+  }
+}
