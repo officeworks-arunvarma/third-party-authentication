@@ -35,7 +35,7 @@ sequenceDiagram
     TS->>DB: Lookup & invalidate OTT
     DB-->>TS: OWT
     TS-->>TP: {owt: JWT_TOKEN}
-    TP->>User: Set-Cookie: owt=JWT; HttpOnly; Secure
+    TP->>User: Set-Cookie: owt=JWT<br/>(HttpOnly, Secure)
     TP->>User: Redirect to success page
 ```
 
@@ -143,7 +143,7 @@ sequenceDiagram
     User->>TP: GET CALLBACK?ott=XXX
     TP->>TS: GET /auth/token?ott=XXX (HMAC signed)
     TS-->>TP: {owt: JWT_TOKEN}
-    TP->>User: Set-Cookie: owt=JWT; HttpOnly; Secure
+    TP->>User: Set-Cookie: owt=JWT<br/>(HttpOnly, Secure)
     TP->>User: Redirect to authenticated page
 ```
 

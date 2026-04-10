@@ -448,7 +448,7 @@ sequenceDiagram
     TA-->>TP: Redirect to callback?ott=XXX
     TP->>TS: GET /auth/token?ott=XXX (HMAC signed via TANK)
     TS-->>TP: {owt: JWT}
-    TP->>TP: Set-Cookie: owt=JWT; HttpOnly; Secure
+    TP->>TP: Set-Cookie: owt=JWT<br/>(HttpOnly, Secure)
 ```
 
 ---
