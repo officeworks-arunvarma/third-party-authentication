@@ -1,0 +1,337 @@
+{
+  "system": {
+    "name": "Officeworks Third-Party Authentication System",
+    "description": "OAuth-like third-party customer authentication system with HMAC-SHA512 signature authentication",
+    "status": "DEPRECATED - marked for decommissioning January 2026",
+    "architecture": "Microservices with 7 independent git submodules",
+    "authentication_method": "HMAC-SHA512 signature-based",
+    "infrastructure": {
+      "platform": "AWS",
+      "services": ["DynamoDB", "Cognito", "Elastic Beanstalk"],
+      "region": "ap-southeast-2"
+    }
+  },
+  "repositories": {
+    "trustedauth-service": {
+      "name": "Core Backend API Service",
+      "description": "Main authentication backend service providing OAuth-like flows",
+      "type": "Express.js backend",
+      "port": 3002,
+      "runtime": "Node.js",
+      "key_dependencies": [
+        "@aws-sdk/client-dynamodb",
+        "@aws-sdk/lib-dynamodb",
+        "jsonwebtoken",
+        "express",
+        "crypto"
+      ],
+      "endpoints": {
+        "trusted_party_admin": "/auth/tp",
+        "user_admin": "/auth/user",
+        "authentication": "/auth"
+      },
+      "routes": {
+        "guest_token": "PUT /auth/token/guest",
+        "register_business": "PUT /auth/register/business",
+        "register_personal": "PUT /auth/register",
+        "login": "POST /auth/login",
+        "validate_token": "POST /auth/token/validate",
+        "get_token": "GET /auth/token",
+        "keepalive": "POST /auth/keepalive",
+        "token_from_cookies": "PUT /auth/token/cookies"
+      }
+    },
+    "trustedauth-app": {
+      "name": "OAuth-like UI and Flow",
+      "description": "Frontend application providing authentication UI and customer-facing flows",
+      "type": "Express.js with Handlebars",
+      "runtime": "Node.js",
+      "key_features": [
+        "OAuth-like authorization flow",
+        "Login and registration UI",
+        "Guest token generation",
+        "Callback mechanism"
+      ]
+    },
+    "user-auth-service": {
+      "name": "Main User Authentication Service",
+      "description": "Core user authentication service with Cognito integration",
+      "type": "Node.js backend",
+      "infrastructure": "AWS Cognito, ECS, CloudFormation",
+      "key_features": [
+        "AWS Cognito user pool integration",
+        "Swagger/OpenAPI specification",
+        "Component testing framework",
+        "CloudFormation templates"
+      ]
+    },
+    "trustedauth-profile": {
+      "name": "Profile Endpoint Service",
+      "description": "Service providing customer profile information",
+      "type": "Express.js backend",
+      "port": 3004,
+      "runtime": "Node.js",
+      "endpoints": {
+        "customer_profile": "/auth/customer/profile",
+        "status": "/status"
+      }
+    },
+    "trustedauth-node-client": {
+      "name": "Node.js Client Library (TANK)",
+      "description": "Server-side Node.js client for integrating authentication in backend services",
+      "type": "NPM package",
+      "package_name": "@ow/trustedauth-node-client",
+      "key_classes": ["Client"],
+      "key_methods": [
+        "getProfile(owt)",
+        "exchangeToken(ott)",
+        "validateToken(owt)",
+        "expressMiddleware(whitelist)",
+        "signedReq(method, uri, params, headers)"
+      ],
+      "features": [
+        "HMAC-SHA512 request signing",
+        "Express middleware for token validation",
+        "Promise-based API",
+        "Secure cookie handling"
+      ]
+    },
+    "trustedauth-react-redux": {
+      "name": "React Component Library (TARAS)",
+      "description": "React and Redux integration for third-party applications",
+      "type": "NPM package",
+      "package_name": "@ow/trustedauth-react-redux",
+      "key_exports": [
+        "OWAuth",
+        "OWAuthMiddleware",
+        "OWAuthReducer",
+        "OWAuthPropType"
+      ],
+      "features": [
+        "Redux middleware for authentication checks",
+        "React components for login/register",
+        "User profile management",
+        "Modal-based authentication flow",
+        "Support for test/local/prod environments"
+      ]
+    },
+    "trustedauth-client": {
+      "name": "Browser Client Library",
+      "description": "Client-side JavaScript library for browser-based authentication",
+      "type": "JavaScript library",
+      "delivery": "Minified (authclient.min.js)",
+      "cdn": "https://s3-ap-southeast-2.amazonaws.com/trustedauth-client/authclient.min.js",
+      "key_features": [
+        "Custom HTML element <ow-auth>",
+        "Iframe-based authentication UI",
+        "Window.postMessage communication",
+        "Support for login/register/guest flows",
+        "Multiple environment support (test/local/prod)"
+      ]
+    }
+  },
+  "data_models": {
+    "trusted_party": {
+      "fields": {
+        "partyId": "String - Unique party identifier",
+        "name": "String - Party name",
+        "apiKey": "String - Public API key",
+        "secretKey": "String - Secret for HMAC-SHA512 signing",
+        "callbackUrl": "String - OAuth callback URL",
+        "nonce": "String - One-time nonce for additional security",
+        "tpClientId": "String - Client identifier (defaults to partyId)"
+      }
+    },
+    "token": {
+      "owt": "Officeworks Token - HTTP-only cookie for authenticated sessions",
+      "ott": "One-Time Token - Temporary token exchanged for OWT",
+      "jwt_payload": {
+        "user": {
+          "id": "User identifier",
+          "type": "GUEST or PERSONAL or BUSINESS"
+        }
+      }
+    },
+    "user_profile": {
+      "fields": {
+        "userId": "User ID",
+        "userName": "Full name",
+        "userType": "BUSINESS or PERSONAL",
+        "email": "Email address",
+        "firstName": "First name",
+        "lastName": "Last name",
+        "phone": "Phone number",
+        "mobile": "Mobile number",
+        "hasThirtyDayAccount": "Boolean",
+        "custBP": "Customer business partner code",
+        "orgBP": "Organization business partner code"
+      }
+    }
+  },
+  "security": {
+    "signature_method": "HMAC-SHA512",
+    "signing_algorithm": "crypto.createHmac('sha512')",
+    "headers_required": [
+      "x-ow-signature",
+      "x-ow-nonce",
+      "x-ow-signing-string"
+    ],
+    "token_headers": {
+      "owt": "x-owt",
+      "ott": "x-ott"
+    },
+    "admin_headers": [
+      "X-OW-ADMIN-KEY"
+    ]
+  },
+  "environments": {
+    "local": {
+      "logging_level": "debug",
+      "dynamodb_tables": {
+        "api": "TrustedParty_Api_test",
+        "tokens": "TrustedParty_Tokens_test",
+        "user_tokens": "TrustedParty_UserToken_test"
+      },
+      "endpoints": {
+        "login": "https://api-test.officeworks.com.au/v1/customers/auth",
+        "guest": "https://api-test.officeworks.com.au/v1/customers/auth/guest",
+        "register_personal": "https://api-test.officeworks.com.au/v1/customers/register/personal",
+        "register_business": "https://api-test.officeworks.com.au/v1/customers/register/business"
+      }
+    },
+    "test": {
+      "logging_level": "debug",
+      "dynamodb_tables": {
+        "api": "TrustedParty_Api_test",
+        "tokens": "TrustedParty_Tokens_test",
+        "user_tokens": "TrustedParty_UserToken_test"
+      }
+    },
+    "master": {
+      "logging_level": "info",
+      "dynamodb_tables": {
+        "api": "TrustedParty_Api",
+        "tokens": "TrustedParty_Tokens",
+        "user_tokens": "TrustedParty_UserToken"
+      },
+      "endpoints": {
+        "login": "https://api.officeworks.com.au/v1/customers/auth",
+        "guest": "https://api.officeworks.com.au/v1/customers/auth/guest",
+        "register_personal": "https://api.officeworks.com.au/v1/customers/register/personal",
+        "register_business": "https://api.officeworks.com.au/v1/customers/register/business"
+      }
+    }
+  },
+  "database": {
+    "type": "AWS DynamoDB",
+    "region": "ap-southeast-2",
+    "tables": [
+      {
+        "name": "TrustedParty_Api",
+        "purpose": "Stores trusted party configurations",
+        "key": "PartyId",
+        "indexes": ["ApiKey-index"]
+      },
+      {
+        "name": "TrustedParty_Tokens",
+        "purpose": "Stores issued tokens",
+        "fields": ["UserId", "PartyId", "PartyToken", "UserToken", "IssueTime", "OneTimeToken"]
+      },
+      {
+        "name": "TrustedParty_UserToken",
+        "purpose": "Maps user tokens to trusted party context"
+      }
+    ]
+  },
+  "integration_points": {
+    "cognito": "AWS Cognito for user management and authentication",
+    "api_gateway": "Officeworks API Gateway for upstream service calls",
+    "external_apis": [
+      {
+        "endpoint": "https://api.officeworks.com.au/v1/customers/auth",
+        "purpose": "Login endpoint",
+        "environment": "master"
+      },
+      {
+        "endpoint": "https://api.officeworks.com.au/v1/customers/register/personal",
+        "purpose": "Personal account registration",
+        "environment": "master"
+      },
+      {
+        "endpoint": "https://api.officeworks.com.au/v1/customers/register/business",
+        "purpose": "Business account registration",
+        "environment": "master"
+      }
+    ]
+  },
+  "authentication_flows": {
+    "guest_flow": [
+      "Third-party initiates GET /auth/authorise with apiKey",
+      "User is presented with guest option",
+      "TrustedAuth calls user-auth-service for guest token",
+      "Guest token is stored in DynamoDB",
+      "One-Time Token (OTT) is returned to third-party",
+      "Third-party exchanges OTT for OWT using Node client"
+    ],
+    "login_flow": [
+      "Third-party redirects to /auth/authorise?apiKey=XXX&target=login",
+      "TrustedAuth app displays login UI",
+      "User enters credentials",
+      "Credentials validated against user-auth-service",
+      "JWT token issued with user payload",
+      "User token stored in DynamoDB",
+      "One-Time Token (OTT) returned",
+      "Third-party exchanges OTT for OWT",
+      "OWT set as HTTP-only cookie in third-party domain"
+    ],
+    "register_flow": [
+      "Third-party redirects to /auth/authorise?apiKey=XXX&target=register",
+      "TrustedAuth app displays registration form",
+      "User completes registration",
+      "Account created via user-auth-service",
+      "User automatically logged in",
+      "Same flow as login for token issuance"
+    ]
+  },
+  "token_lifecycle": {
+    "ott": {
+      "lifetime": "Short-lived (typically minutes)",
+      "purpose": "One-time exchange for OWT",
+      "transport": "URL parameter or header"
+    },
+    "owt": {
+      "lifetime": "8 hours (default)",
+      "storage": "HTTP-only secure cookie",
+      "transport": "Cookie",
+      "validation": "HMAC-SHA512 signature verification"
+    }
+  },
+  "rate_limits": {
+    "request_timeout": 20000,
+    "token_cookie_expiry": "8 hours (28800000ms)"
+  },
+  "logging": {
+    "framework": "Winston",
+    "levels": {
+      "local": "debug",
+      "test": "debug",
+      "master": "info"
+    },
+    "logged_items": [
+      "Request ID",
+      "HTTP method",
+      "URL path",
+      "Query parameters",
+      "Authentication events",
+      "Token operations",
+      "Errors"
+    ]
+  },
+  "deployment": {
+    "backend_services": "AWS Elastic Beanstalk",
+    "container_orchestration": "AWS ECS (for user-auth-service)",
+    "infrastructure_as_code": "CloudFormation templates",
+    "nodejs_versions": "Compatible with v10+ (package.json indicates older dependencies)",
+    "deprecated_status": "This service is marked for decommissioning in January 2026"
+  }
+}
