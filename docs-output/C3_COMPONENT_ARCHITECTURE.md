@@ -13,464 +13,218 @@ This document describes the detailed components within each container, including
 #### Module: tpapi.js
 **Purpose**: Trusted Party API operations and token management
 
-```
-tpapi.js
-├── Database Layer
-│   ├── transformTrustedParty(dbItem)
-│   │   └─ Converts DynamoDB record to {partyId, name, apiKey,
-│   │      secretKey, callbackUrl, nonce, tpClientId}
-│   │
-│   ├── transformTrustedPartyToken(dbItem)
-│   │   └─ Converts DynamoDB token record to {userId, partyId,
-│   │      partyToken, userToken, issueTime, ott}
-│   │
-│   └── buildRecord(dbPromise, getDataFn, transformFn)
-│       └─ Promise wrapper for DynamoDB operations
-│          - Handles error cases
-│          - Applies transformation functions
-│
-├── Query Operations
-│   ├── findById(tpId)
-│   │   └─ GET TrustedParty_Api WHERE PartyId = tpId
-│   │      Returns: Promise<TrustedParty>
-│   │
-│   ├── findByApiKey(apiKey)
-│   │   └─ QUERY TrustedParty_Api INDEX (ApiKey-index) = apiKey
-│   │      Returns: Promise<TrustedParty>
-│   │      Note: Query returns array, extracts first item
-│   │
-│   ├── findByPartyToken(partyToken)
-│   │   └─ QUERY TrustedParty_Tokens INDEX (PartyToken-index)
-│   │      Returns: Promise<TrustedPartyToken>
-│   │
-│   └── findUserTokenByUserId(userId)
-│       └─ QUERY TrustedParty_UserToken WHERE UserId = userId
-│          Returns: Promise<UserToken>
-│
-├── Create/Update Operations
-│   ├── registerParty(tpId?, name, apiKey, secretKey,
-│   │                 callbackUrl, nonce)
-│   │   └─ PUT TrustedParty_Api
-│   │      - Auto-generates ID if not supplied
-│   │      - Generates random apiKey if not supplied
-│   │      - Generates secretKey for HMAC signing
-│   │      Returns: Promise<TrustedParty>
-│   │
-│   ├── updateParty(tpId, {name, callbackUrl, nonce})
-│   │   └─ UPDATE TrustedParty_Api WHERE PartyId = tpId
-│   │      Returns: Promise<TrustedParty>
-│   │
-│   └── deleteParty(tpId)
-│       └─ DELETE TrustedParty_Api WHERE PartyId = tpId
-│          Returns: Promise<{ deleted: true }>
-│
-├── Token Operations
-│   ├── createOrUpdateUserToken(userToken, userId)
-│   │   └─ PUT TrustedParty_UserToken
-│   │      Maps user token to user ID
-│   │      Returns: Promise<UserToken>
-│   │
-│   ├── genToken(trustedParty, userToken, payload)
-│   │   └─ Generate OTT and OWT tokens
-│   │      Process:
-│   │      1. Create JWT with payload
-│   │      2. Generate random OTT string
-│   │      3. Store in TrustedParty_Tokens table
-│   │      4. Return {owt, ott, userToken}
-│   │      Returns: Promise<{owt, ott, userToken}>
-│   │
-│   ├── validateSignature(signature, payload, secret)
-│   │   └─ HMAC-SHA512 signature verification
-│   │      Algorithm:
-│   │      1. Compute HMAC-SHA512(payload, secret)
-│   │      2. Compare with provided signature
-│   │      3. Return boolean or throw error
-│   │
-│   └── validateToken(token)
-│       └─ JWT validation and parsing
-│          Returns: Promise<{userId, userType, issued, expires}>
-│
-└── DynamoDB Integration
-    └─ AWS SDK v3 (@aws-sdk/lib-dynamodb)
-       - DynamoDBDocument client
-       - Region: ap-southeast-2
-       - Tables configured in config.js
+```mermaid
+graph TB
+    subgraph tpapi["tpapi.js Module"]
+        subgraph db["Database Layer"]
+            transformTP["transformTrustedParty(dbItem)<br/>→ TrustedParty object"]
+            transformTPT["transformTrustedPartyToken(dbItem)<br/>→ TrustedPartyToken object"]
+            buildRecord["buildRecord(dbPromise, getDataFn, transformFn)<br/>Promise wrapper for DynamoDB"]
+        end
+        
+        subgraph query["Query Operations"]
+            findById["findById(tpId)<br/>→ Promise&lt;TrustedParty&gt;"]
+            findByApiKey["findByApiKey(apiKey)<br/>→ Promise&lt;TrustedParty&gt;"]
+            findByPartyToken["findByPartyToken(partyToken)<br/>→ Promise&lt;TrustedPartyToken&gt;"]
+            findUserTokenByUserId["findUserTokenByUserId(userId)<br/>→ Promise&lt;UserToken&gt;"]
+        end
+        
+        subgraph create["Create/Update Operations"]
+            registerParty["registerParty(tpId?, name, apiKey, secretKey)<br/>→ Promise&lt;TrustedParty&gt;"]
+            updateParty["updateParty(tpId, config)<br/>→ Promise&lt;TrustedParty&gt;"]
+            deleteParty["deleteParty(tpId)<br/>→ Promise&lt;{deleted: true}&gt;"]
+        end
+        
+        subgraph token["Token Operations"]
+            createOrUpdateUserToken["createOrUpdateUserToken(userToken, userId)<br/>→ Promise&lt;UserToken&gt;"]
+            genToken["genToken(trustedParty, userToken, payload)<br/>→ Promise&lt;{owt, ott, userToken}&gt;"]
+            validateSignature["validateSignature(signature, payload, secret)<br/>→ boolean"]
+            validateToken["validateToken(token)<br/>→ Promise&lt;{userId, userType, issued, expires}&gt;"]
+        end
+        
+        AWSSdk["AWS SDK v3 (@aws-sdk/lib-dynamodb)<br/>DynamoDBDocument client<br/>Region: ap-southeast-2"]
+    end
+    
+    findById --> buildRecord
+    findByApiKey --> buildRecord
+    findByPartyToken --> buildRecord
+    findUserTokenByUserId --> buildRecord
+    registerParty --> buildRecord
+    updateParty --> buildRecord
+    deleteParty --> buildRecord
+    createOrUpdateUserToken --> buildRecord
+    genToken --> buildRecord
+    validateSignature --> buildRecord
+    validateToken --> buildRecord
+    buildRecord --> AWSSdk
 ```
 
 #### Module: userapi.js
 **Purpose**: Upstream user authentication service integration
 
-```
-userapi.js
-├── HTTP Client Operations
-│   ├── guestToken()
-│   │   └─ GET {endpoint.guest}
-│   │      - Requests guest token from Officeworks API
-│   │      - Returns: Promise<userToken>
-│   │
-│   ├── authTokens(userToken)
-│   │   └─ GET {endpoint.usercookies.url}
-│   │      - Fetch browser cookies for authenticated user
-│   │      - Returns: Promise<{wc_auth, wc_session, ...}>
-│   │
-│   ├── login(credentials)
-│   │   └─ POST {endpoint.login}
-│   │      Body: { email, password }
-│   │      - Validates credentials against upstream API
-│   │      - Returns: Promise<userToken>
-│   │
-│   ├── register(type, formData)
-│   │   └─ POST {endpoint.register.personal|business}
-│   │      Type: 'personal' or 'business'
-│   │      Body: {email, password, firstName, lastName, ...}
-│   │      - Creates new account
-│   │      - Returns: Promise<userToken>
-│   │
-│   └── fetchAuthTokens(userToken)
-│       └─ GET {endpoint.fetchAuthTokens.url}
-│          - Fetch auth tokens for user session
-│          - Returns: Promise<{authToken, ...}>
-│
-├── Configuration
-│   ├── Endpoints from config.js
-│   │   - login
-│   │   - guest
-│   │   - register.personal
-│   │   - register.business
-│   │   - usercookies
-│   │   - fetchAuthTokens
-│   │
-│   ├── Request Timeout
-│   │   └─ config.requestTimeout (default: 20000ms)
-│   │
-│   └── Error Handling
-│       ├── Network errors
-│       ├── HTTP 4xx/5xx responses
-│       └─ Returns detailed error objects
-│
-└── Dependencies
-    └─ request library for HTTP calls
-       util.fetch() wrapper
+```mermaid
+graph TB
+    subgraph http["HTTP Client Operations"]
+        guestToken["guestToken()<br/>GET endpoint.guest<br/>→ Promise&lt;userToken&gt;"]
+        authTokens["authTokens(userToken)<br/>GET usercookies<br/>→ Promise&lt;{wc_auth, wc_session}&gt;"]
+        login["login(email, password)<br/>POST login<br/>→ Promise&lt;userToken&gt;"]
+        register["register(type, formData)<br/>POST register.personal|business<br/>→ Promise&lt;userToken&gt;"]
+        fetchAuthTokens["fetchAuthTokens(userToken)<br/>GET fetchAuthTokens<br/>→ Promise&lt;{authToken}&gt;"]
+    end
+    
+    subgraph config["Configuration"]
+        endpoints["Endpoints from config.js:<br/>login, guest, register.personal,<br/>register.business, usercookies"]
+        timeout["Request Timeout:<br/>config.requestTimeout: 20000ms"]
+        errorHandling["Error Handling:<br/>Network errors, HTTP 4xx/5xx"]
+    end
+    
+    deps["Dependencies: request library<br/>util.fetch() wrapper"]
+    
+    guestToken --> endpoints
+    authTokens --> endpoints
+    login --> endpoints
+    register --> endpoints
+    fetchAuthTokens --> endpoints
+    endpoints --> timeout
+    endpoints --> errorHandling
+    http --> deps
 ```
 
 #### Module: util.js
 **Purpose**: Utility functions for cryptography, validation, and helpers
 
-```
-util.js
-├── Cryptographic Functions
-│   ├── hash(str)
-│   │   └─ SHA512 hash of string
-│   │      Uses: crypto.createHash('sha512')
-│   │      Returns: hexadecimal hash
-│   │
-│   └── getSignaturePayLoadFromRequest(req)
-│       └─ Extract signature-related fields from request
-│          Reads headers:
-│          - x-owt (Officeworks Token)
-│          - x-ott (One-Time Token)
-│          - x-ow-signature (HMAC signature)
-│          - x-ow-nonce (Random nonce)
-│          - x-ow-signing-string (Data signed)
-│          Reads query params:
-│          - apiKey
-│          Returns: {ows, nonce, apiKey, signatureString, owt|ott}
-│
-├── ID Generation Functions
-│   ├── uuid4()
-│   │   └─ Generate UUID v4
-│   │      Returns: string (UUID format)
-│   │
-│   └── genRandomStr(len)
-│       └─ Generate random alphanumeric string
-│          Parameter: length in characters
-│          Returns: random string
-│
-├── Validation Functions
-│   ├── isValidAbn(abn)
-│   │   └─ Validate Australian Business Number
-│   │      Algorithm:
-│   │      1. Check 11 digits
-│   │      2. Apply ABN checksum algorithm
-│   │      3. Verify against weights [10,1,3,5,7,9,11,13,15,17,19]
-│   │      Returns: boolean
-│   │
-│   ├── isNumeric(n)
-│   │   └─ Check if value is numeric
-│   │      Returns: boolean
-│   │
-│   └── digits(num)
-│       └─ Convert number to array of digits
-│          Returns: [1, 2, 3, ...] for 123
-│
-└── HTTP Utilities
-    ├── fetch(options, respHandler, errHandler)
-    │   └─ Promise-wrapped HTTP request
-    │      - Sets timeout from config
-    │      - Handles 200/201 success codes
-    │      - Applies response/error handlers
-    │      - Returns: Promise<response>
-    │
-    └─ Dependencies
-       ├─ crypto module
-       ├─ uuid/v4
-       ├─ randomstring
-       └─ request
+```mermaid
+graph TB
+    subgraph crypto["Cryptographic Functions"]
+        hash["hash(str)<br/>SHA512 hash<br/>crypto.createHash('sha512')<br/>→ hexadecimal"]
+        getSigPayload["getSignaturePayLoadFromRequest(req)<br/>Extract: x-owt, x-ott, x-ow-signature,<br/>x-ow-nonce, x-ow-signing-string, apiKey<br/>→ {ows, nonce, apiKey, signatureString}"]
+    end
+    
+    subgraph idGen["ID Generation Functions"]
+        uuid4["uuid4()<br/>Generate UUID v4<br/>→ string"]
+        genRandomStr["genRandomStr(len)<br/>Generate random alphanumeric<br/>→ string"]
+    end
+    
+    subgraph validate["Validation Functions"]
+        isValidAbn["isValidAbn(abn)<br/>Validate ABN: 11 digits<br/>Checksum algorithm<br/>Weights: [10,1,3,5,7,9,11,13,15,17,19]<br/>→ boolean"]
+        isNumeric["isNumeric(n)<br/>Check if numeric<br/>→ boolean"]
+        digits["digits(num)<br/>Convert to digit array<br/>→ [1,2,3,...] for 123"]
+    end
+    
+    subgraph httpUtil["HTTP Utilities"]
+        fetch["fetch(options, respHandler, errHandler)<br/>Promise-wrapped HTTP request<br/>- Set timeout from config<br/>- Handle 200/201 success codes<br/>→ Promise&lt;response&gt;"]
+    end
+    
+    deps["Dependencies:<br/>crypto, uuid/v4,<br/>randomstring, request"]
+    
+    crypto --> deps
+    idGen --> deps
+    validate --> deps
+    httpUtil --> deps
 ```
 
 #### Module: routes/auth.js
 **Purpose**: Customer authentication endpoints
 
-```
-routes/auth.js
-├── Middleware
-│   └─ API Key Validation
-│      ├─ Check for apiKey in query params or body
-│      ├─ Lookup trusted party by apiKey
-│      ├─ Attach party object to req.party
-│      └─ Return 400 if apiKey missing, 401 if invalid
-│
-├── Route Handlers
-│   ├── guestToken(req, res)
-│   │   Method: PUT /auth/token/guest
-│   │   Process:
-│   │   1. Get guest token from user-auth-service
-│   │   2. Get auth tokens (cookies)
-│   │   3. Create user token mapping
-│   │   4. Generate JWT token with GUEST type
-│   │   5. Store in DynamoDB
-│   │   6. Return {owt, ott, authTokens, user}
-│   │   Status: 201 Created
-│   │
-│   ├── register(req, res)
-│   │   Method: PUT /auth/register
-│   │   Body: {email, password, firstName, lastName, ...}
-│   │   Process:
-│   │   1. Register personal account via user-auth-service
-│   │   2. Get auth tokens
-│   │   3. Generate JWT with PERSONAL type
-│   │   4. Store token and user mapping
-│   │   5. Return token response with OTT
-│   │   Status: 201 Created
-│   │
-│   ├── registerBusiness(req, res)
-│   │   Method: PUT /auth/register/business
-│   │   Body: {companyName, abn, email, password, ...}
-│   │   Process:
-│   │   1. Validate ABN format
-│   │   2. Register business account
-│   │   3. Same token flow as register
-│   │   Status: 201 Created
-│   │
-│   ├── login(req, res)
-│   │   Method: POST /auth/login
-│   │   Body: {email, password}
-│   │   Process:
-│   │   1. Call user-auth-service.login(credentials)
-│   │   2. If successful, get auth tokens
-│   │   3. Generate JWT with user type
-│   │   4. Create OTT and OWT
-│   │   5. Return token response
-│   │   Status: 200 OK
-│   │
-│   ├── validateToken(req, res)
-│   │   Method: POST /auth/token/validate
-│   │   Headers: x-owt or x-ott
-│   │   Process:
-│   │   1. Extract token from headers
-│   │   2. Verify JWT signature
-│   │   3. Check token expiry
-│   │   4. Return validation result
-│   │   Returns: {valid: boolean, user: {...}, expires: ...}
-│   │
-│   ├── fetchToken(req, res)
-│   │   Method: GET /auth/token
-│   │   Query: ott (OTT token)
-│   │   Headers: x-ott, x-ow-signature, x-ow-nonce
-│   │   Process:
-│   │   1. Validate HMAC-SHA512 signature
-│   │   2. Lookup OTT in DynamoDB
-│   │   3. Return OWT if OTT valid
-│   │   4. Return 401 if invalid
-│   │   Returns: {owt: string}
-│   │
-│   ├── keepAlive(req, res)
-│   │   Method: POST /auth/keepalive
-│   │   Headers: x-owt
-│   │   Process:
-│   │   1. Validate OWT token
-│   │   2. Extend session expiry in DynamoDB
-│   │   3. Return updated token info
-│   │   Returns: {owt, expiresIn}
-│   │
-│   └─ tokenForCookies(req, res)
-│       Method: PUT /auth/token/cookies
-│       Body: {wc_auth, wc_session, ...} (legacy)
-│       Process:
-│       1. Convert WC cookies to OWT
-│       2. Legacy compatibility endpoint
-│       Returns: {owt, user}
-│
-└── Response Format
-    └─ buildResponseObject(owt, ott, authTokens, payload)
-       Returns:
-       {
-         owt: string,
-         ott: string,
-         authTokens: {...},
-         user: {
-           id: string,
-           type: "GUEST|PERSONAL|BUSINESS"
-         }
-       }
+```mermaid
+graph TB
+    subgraph middleware["Middleware"]
+        apiKeyVal["API Key Validation<br/>- Check query params or body<br/>- Lookup trusted party by apiKey<br/>- Attach party to req.party<br/>- 400 if missing, 401 if invalid"]
+    end
+    
+    subgraph handlers["Route Handlers"]
+        guestToken["guestToken()<br/>PUT /auth/token/guest<br/>→ {owt, ott, authTokens, user} 201"]
+        register["register()<br/>PUT /auth/register<br/>→ {owt, ott, authTokens, user} 201"]
+        regBusiness["registerBusiness()<br/>PUT /auth/register/business<br/>→ {owt, ott, authTokens, user} 201"]
+        login["login()<br/>POST /auth/login<br/>→ {owt, ott, authTokens, user} 200"]
+        validateToken["validateToken()<br/>POST /auth/token/validate<br/>→ {valid, user, expires}"]
+        fetchToken["fetchToken()<br/>GET /auth/token<br/>→ {owt: JWT}"]
+        keepAlive["keepAlive()<br/>POST /auth/keepalive<br/>→ {owt, expiresIn}"]
+        tokenForCookies["tokenForCookies()<br/>PUT /auth/token/cookies<br/>→ {owt, user} Legacy"]
+    end
+    
+    respFormat["Response Format<br/>buildResponseObject()<br/>{owt, ott, authTokens,<br/>user: {id, type}}<br/>type: GUEST|PERSONAL|BUSINESS"]
+    
+    handlers --> respFormat
+    middleware --> handlers
 ```
 
 #### Module: routes/tpAdmin.js
 **Purpose**: Trusted Party management endpoints (admin only)
 
-```
-routes/tpAdmin.js
-├── Middleware
-│   └─ Admin Key Validation
-│      ├─ Require X-OW-ADMIN-KEY header
-│      ├─ Compare against config.adminHeader
-│      └─ Return 401 if missing or invalid
-│
-├── Route Handlers
-│   ├── POST /:tpId
-│   │   Create trusted party with specified ID
-│   │   Body: {name, callbackUrl, nonce}
-│   │   Returns: TrustedParty object
-│   │
-│   ├── POST /
-│   │   Create trusted party with auto-generated ID
-│   │   Body: {name, callbackUrl, nonce}
-│   │   Returns: TrustedParty object with auto-generated partyId
-│   │
-│   ├── PUT /:tpId
-│   │   Update trusted party
-│   │   Query params: callbackUrl, name, nonce
-│   │   Returns: Updated TrustedParty object
-│   │
-│   ├── DELETE /:tpId
-│   │   Delete trusted party
-│   │   Returns: {deleted: true}
-│   │
-│   ├── GET /:tpId
-│   │   Get trusted party by ID
-│   │   Returns: TrustedParty object
-│   │
-│   └─ GET /apiKey/:apiKey
-│       Get trusted party by API key
-│       Returns: TrustedParty object
-│
-└── Response Format
-    {
-      partyId: string,
-      name: string,
-      apiKey: string (public),
-      secretKey: string (private - HMAC secret),
-      callbackUrl: string,
-      nonce: string,
-      tpClientId: string
-    }
+```mermaid
+graph TB
+    subgraph middleware["Middleware"]
+        adminKeyVal["Admin Key Validation<br/>- Require X-OW-ADMIN-KEY header<br/>- Compare against config.adminHeader<br/>- Return 401 if missing or invalid"]
+    end
+    
+    subgraph handlers["Route Handlers"]
+        createWithId["POST /:tpId<br/>Create party with specified ID<br/>Body: {name, callbackUrl, nonce}<br/>→ TrustedParty"]
+        createAutoId["POST /<br/>Create party with auto-generated ID<br/>Body: {name, callbackUrl, nonce}<br/>→ TrustedParty"]
+        updateParty["PUT /:tpId<br/>Update trusted party<br/>Query: callbackUrl, name, nonce<br/>→ Updated TrustedParty"]
+        deleteParty["DELETE /:tpId<br/>Delete trusted party<br/>→ {deleted: true}"]
+        getById["GET /:tpId<br/>Get party by ID<br/>→ TrustedParty"]
+        getByKey["GET /apiKey/:apiKey<br/>Get party by API key<br/>→ TrustedParty"]
+    end
+    
+    respFormat["Response Format<br/>{partyId, name, apiKey, secretKey,<br/>callbackUrl, nonce, tpClientId}"]
+    
+    handlers --> respFormat
+    middleware --> handlers
 ```
 
 #### Module: routes/userAdmin.js
 **Purpose**: User authentication admin endpoints
 
-```
-routes/userAdmin.js
-├── Middleware
-│   └─ Admin Key Validation
-│      ├─ Require headers: X-OW-AGENTTOKEN, X-OW-ADMIN-KEY
-│      ├─ Optional: X-OW-SIGNATURE, X-OW-NONCE
-│      └─ Return 401 if missing
-│
-├── Route Handlers
-│   ├── GET /token
-│   │   Require: OWT cookie or header
-│   │   Process:
-│   │   1. Validate OWT token
-│   │   2. Lookup user token mapping
-│   │   3. Return API token for given OWT
-│   │   Returns: {userToken: string}
-│   │
-│   └─ GET /cookies
-│       Require: OWT cookie or header
-│       Process:
-│       1. Validate OWT token
-│       2. Fetch WC (web client) cookies
-│       3. Return legacy cookie format
-│       Returns: {wc_auth, wc_session, ...}
-│
-└─ Used by: Internal admin operations, legacy integrations
+```mermaid
+graph TB
+    subgraph middleware["Middleware"]
+        adminKeyVal["Admin Key Validation<br/>- Require: X-OW-AGENTTOKEN, X-OW-ADMIN-KEY<br/>- Optional: X-OW-SIGNATURE, X-OW-NONCE<br/>- Return 401 if missing"]
+    end
+    
+    subgraph handlers["Route Handlers"]
+        getToken["GET /token<br/>Require: OWT cookie or header<br/>1. Validate OWT token<br/>2. Lookup user token mapping<br/>3. Return API token for OWT<br/>→ {userToken: string}"]
+        getCookies["GET /cookies<br/>Require: OWT cookie or header<br/>1. Validate OWT token<br/>2. Fetch WC cookies<br/>3. Return legacy cookie format<br/>→ {wc_auth, wc_session, ...}"]
+    end
+    
+    usage["Used by: Internal admin operations<br/>Legacy integrations"]
+    
+    handlers --> usage
+    middleware --> handlers
 ```
 
 ---
 
-## 2. TrustedAuth App Components
-
 ### trustedauth-app (Port 3001)
 
-```
-trustedauth-app/
-├── Views (Handlebars templates)
-│   ├── login.hbs
-│   │   └─ Login form with email/password
-│   │
-│   ├── register.hbs
-│   │   └─ Registration form with validation
-│   │      - Personal: email, password, firstName, lastName
-│   │      - Business: companyName, abn, email, password
-│   │
-│   ├── guest.hbs
-│   │   └─ Continue as guest button
-│   │
-│   └─ authorize.hbs
-│       └─ OAuth authorization confirmation
-│
-├── Routes
-│   ├── GET /auth/login
-│   │   ├─ Render login form
-│   │   └─ Accept params: apiKey, cb, target
-│   │
-│   ├── GET /auth/register
-│   │   ├─ Render registration form
-│   │   └─ Accept params: apiKey, cb
-│   │
-│   ├── POST /auth/login
-│   │   ├─ Process form submission
-│   │   ├─ Call trustedauth-service
-│   │   └─ Redirect to callback with OTT
-│   │
-│   ├── POST /auth/register
-│   │   ├─ Process registration
-│   │   ├─ Call trustedauth-service
-│   │   └─ Auto-login and redirect with OTT
-│   │
-│   ├── GET /auth/guest
-│   │   ├─ Generate guest token
-│   │   ├─ Call trustedauth-service
-│   │   └─ Redirect to callback with OTT
-│   │
-│   └─ GET /auth/authorise
-│       ├─ Main OAuth endpoint
-│       ├─ Route to login/register/guest based on target
-│       └─ Accept params: apiKey, cb, target, guest
-│
-├── Client-side JavaScript
-│   ├── lib/client/owauth.js
-│   │   └─ Communication with parent window
-│   │      - window.postMessage for iframe
-│   │      - Pass login/register/guest events
-│   │
-│   └─ public/js/
-│       ├─ jQuery manipulation
-│       └─ Form validation
-│
-└── Configuration
-    └─ Support for local/test/master environments
+```mermaid
+graph TB
+    subgraph views["Views - Handlebars Templates"]
+        login["login.hbs<br/>Login form with<br/>email/password"]
+        register["register.hbs<br/>Registration form<br/>Personal: email, password,<br/>firstName, lastName<br/>Business: companyName, abn, etc"]
+        guest["guest.hbs<br/>Continue as Guest button"]
+        authorize["authorize.hbs<br/>OAuth authorization<br/>confirmation"]
+    end
+    
+    subgraph routes["Routes"]
+        loginGet["GET /auth/login<br/>Render login form<br/>Params: apiKey, cb, target"]
+        registerGet["GET /auth/register<br/>Render registration form<br/>Params: apiKey, cb"]
+        loginPost["POST /auth/login<br/>Process form<br/>Call trustedauth-service<br/>Redirect callback?ott=XXX"]
+        registerPost["POST /auth/register<br/>Process registration<br/>Auto-login + redirect"]
+        guestGet["GET /auth/guest<br/>Generate guest token<br/>Call trustedauth-service<br/>Redirect callback?ott=XXX"]
+        authorise["GET /auth/authorise<br/>Main OAuth endpoint<br/>Route to login/register/guest<br/>Params: apiKey, cb, target, guest"]
+    end
+    
+    subgraph client["Client-side JavaScript"]
+        owauth["lib/client/owauth.js<br/>Communication with parent window<br/>window.postMessage for iframe<br/>Pass login/register/guest events"]
+        js["public/js/<br/>jQuery manipulation<br/>Form validation"]
+    end
+    
+    config["Configuration<br/>Support: local/test/master<br/>environments"]
+    
+    views --> routes
+    routes --> client
+    client --> config
 ```
 
 ---
@@ -479,39 +233,24 @@ trustedauth-app/
 
 ### trustedauth-profile (Port 3004)
 
-```
-trustedauth-profile/
-├── Route Handler: routes/customer.js
-│   └─ GET /auth/customer/profile
-│      ├─ Extract OWT from headers (x-owt)
-│      ├─ Validate signature via tpapi
-│      ├─ Call userProfileClient to fetch upstream profile
-│      ├─ Return profile data
-│      └─ Returns:
-│         {
-│           userId: string,
-│           userName: string,
-│           userType: string,
-│           email: string,
-│           firstName: string,
-│           lastName: string,
-│           phone: string,
-│           mobile: string,
-│           custBP: string,
-│           orgBP: string
-│         }
-│
-├── Module: userProfileClient.js
-│   ├── getProfile(userToken)
-│   │   └─ HTTP GET to upstream API
-│   │      Endpoint: config.endpoints.userinfo
-│   │      Returns: Promise<UserProfile>
-│   │
-│   └─ Configuration
-│       └─ Upstream endpoint from config.js
-│
-└── Status Endpoint: routes/status.js
-    └─ GET /status (health check)
+```mermaid
+graph TB
+    subgraph routes["Route Handlers"]
+        profile["GET /auth/customer/profile<br/>1. Extract OWT from headers (x-owt)<br/>2. Validate signature via tpapi<br/>3. Call userProfileClient<br/>4. Return profile data"]
+        status["GET /status<br/>Health check endpoint"]
+    end
+    
+    subgraph module["Module: userProfileClient.js"]
+        getProfile["getProfile(userToken)<br/>HTTP GET to upstream API<br/>Endpoint: config.endpoints.userinfo<br/>→ Promise&lt;UserProfile&gt;"]
+        config["Configuration from config.js<br/>Upstream endpoint settings"]
+    end
+    
+    response["Response Format<br/>{userId, userName, userType, email,<br/>firstName, lastName, phone, mobile,<br/>custBP, orgBP}"]
+    
+    profile --> getProfile
+    getProfile --> response
+    status --> response
+    getProfile --> config
 ```
 
 ---
@@ -520,83 +259,31 @@ trustedauth-profile/
 
 ### user-auth-service (AWS ECS)
 
-```
-user-auth-service/
-├── OpenAPI/Swagger Specification
-│   ├── app/spec/swagger.yaml
-│   │   └─ Main API specification file
-│   │
-│   ├── app/spec/paths.yaml
-│   │   └─ RESTful endpoint definitions
-│   │      - POST /register/personal
-│   │      - POST /register/business
-│   │      - POST /auth
-│   │      - GET /auth/guest
-│   │      - GET /account (profile)
-│   │      - POST /tokens (auth cookies)
-│   │
-│   ├── app/spec/definitions.yaml
-│   │   └─ Data model schemas
-│   │      - User
-│   │      - Credentials
-│   │      - AuthToken
-│   │      - UserProfile
-│   │      - BusinessUser
-│   │
-│   └─ app/spec/parameters.yaml
-│       └─ Common parameter definitions
-│
-├── Application Code (app/src/)
-│   ├── routes/ (Route handlers)
-│   │   ├─ registerPersonal(email, password, firstName, lastName)
-│   │   ├─ registerBusiness(companyName, abn, email, password)
-│   │   ├─ login(email, password)
-│   │   ├─ getGuest()
-│   │   ├─ getProfile(userToken)
-│   │   └─ getAuthTokens(userToken)
-│   │
-│   └─ services/ (Business logic)
-│       ├─ CognitoUserPoolService
-│       │   ├─ Create user in Cognito
-│       │   ├─ Validate credentials
-│       │   ├─ Manage user attributes
-│       │   └─ Handle MFA
-│       │
-│       ├─ UserProfileService
-│       │   ├─ Fetch user attributes
-│       │   ├─ Manage profile data
-│       │   └─ Link to business entities
-│       │
-│       └─ SessionService
-│           ├─ Generate session tokens
-│           ├─ Manage auth cookies
-│           └─ Track user sessions
-│
-├── Infrastructure as Code
-│   ├── scripts/infra/templates/
-│   │   ├─ cognito-user-pool.yaml
-│   │   │   └─ CloudFormation template for user pool
-│   │   │      - Password policies
-│   │   │      - MFA requirements
-│   │   │      - Email verification
-│   │   │      - User attributes
-│   │   │
-│   │   └─ cognito-access.yaml
-│   │       └─ Cognito app client configuration
-│   │          - JWT claim mappings
-│   │          - Token expiry
-│   │          - Callback URLs
-│   │
-│   └─ scripts/infra/ow-config/
-│       ├─ [environment]/config.yaml
-│       ├─ [environment]/ecs.yaml
-│       ├─ [environment]/task-role.yaml
-│       ├─ [environment]/cognito-user-pool.yaml
-│       └─ [environment]/cognito-access.yaml
-│
-└── Testing
-    └─ tests/component/ (Component tests)
-       └─ Verify authentication flows
+```mermaid
+graph TB
+    subgraph spec["OpenAPI/Swagger Specification"]
+        swagger["app/spec/swagger.yaml<br/>Main API specification"]
+        paths["app/spec/paths.yaml<br/>POST /register/personal<br/>POST /register/business<br/>POST /auth<br/>GET /auth/guest<br/>GET /account<br/>POST /tokens"]
+        definitions["app/spec/definitions.yaml<br/>User, Credentials, AuthToken,<br/>UserProfile, BusinessUser"]
+        parameters["app/spec/parameters.yaml<br/>Common parameter definitions"]
+    end
+    
+    subgraph appCode["Application Code - app/src/"]
+        routes["routes/<br/>registerPersonal()<br/>registerBusiness()<br/>login()<br/>getGuest()<br/>getProfile()<br/>getAuthTokens()"]
+        services["services/<br/>CognitoUserPoolService<br/>UserProfileService<br/>SessionService"]
+    end
+    
+    subgraph infra["Infrastructure as Code"]
+        cognito["cognito-user-pool.yaml<br/>Password policies, MFA,<br/>email verification,<br/>user attributes"]
+        cognitoAccess["cognito-access.yaml<br/>JWT claim mappings,<br/>token expiry,<br/>callback URLs"]
+        config["[environment]/config.yaml<br/>[environment]/ecs.yaml<br/>[environment]/task-role.yaml"]
+    end
+    
+    testing["Testing<br/>tests/component/<br/>Verify authentication flows"]
+    
+    spec --> appCode
+    appCode --> infra
+    infra --> testing
 ```
 
 ---
@@ -605,199 +292,100 @@ user-auth-service/
 
 ### trustedauth-node-client (TANK)
 
-```
-trustedauth-node-client/
-├── Main Export: src/auth/client.js
-│   └─ class Client
-│       ├─ Constructor(apiKey, serverUrl, internalServerUrl, secret)
-│       │
-│       ├─ Public Methods
-│       │   ├─ getProfile(owt): Promise<UserProfile>
-│       │   │   └─ Calls signedReq('get', PROFILE_URI, ...)
-│       │   │
-│       │   ├─ exchangeToken(ott): Promise<{owt}>
-│       │   │   └─ Exchange OTT for OWT with signature
-│       │   │
-│       │   ├─ validateToken(owt): Promise<ValidationResult>
-│       │   │   └─ Internal endpoint only
-│       │   │
-│       │   └─ expressMiddleware(whitelist): Middleware
-│       │       └─ Validate owt cookie on matching paths
-│       │
-│       └─ Private Methods
-│           ├─ signedReq(method, uri, params, headers)
-│           │   └─ HMAC-SHA512 signing implementation
-│           │      1. Generate nonce
-│           │      2. Create signing string
-│           │      3. Compute HMAC(signing string, secret)
-│           │      4. Add headers to request
-│           │      5. Send HTTP request
-│           │      6. Return Promise<response>
-│           │
-│           └─ req(method, uri, headers, internal)
-│               └─ Unsigned HTTP request wrapper
-│
-├── Express Helper: src/auth/expressHelper.js
-│   └─ Express middleware factory
-│      - Attach to app.use()
-│      - Validate owt cookie
-│      - Pass auth context to next middleware
-│
-└── Dependencies
-    ├─ node-rest-client (HTTP)
-    ├─ crypto (HMAC-SHA512)
-    └─ promise
+```mermaid
+graph TB
+    subgraph client["class Client"]
+        constructor["Constructor(apiKey, serverUrl,<br/>internalServerUrl, secret)"]
+        
+        subgraph public["Public Methods"]
+            getProfile["getProfile(owt)<br/>→ Promise&lt;UserProfile&gt;<br/>Calls signedReq()"]
+            exchangeToken["exchangeToken(ott)<br/>→ Promise&lt;{owt}&gt;<br/>Exchange OTT for OWT"]
+            validateToken["validateToken(owt)<br/>→ Promise&lt;ValidationResult&gt;<br/>Internal endpoint only"]
+            middleware["expressMiddleware(whitelist)<br/>→ Express middleware<br/>Validate owt cookie on paths"]
+        end
+        
+        subgraph private["Private Methods"]
+            signedReq["signedReq(method, uri, params, headers)<br/>1. Generate random nonce<br/>2. Create signing string<br/>3. HMAC-SHA512(signing string, secret)<br/>4. Add headers to request<br/>5. Send HTTP request<br/>→ Promise&lt;response&gt;"]
+            req["req(method, uri, headers, internal)<br/>Unsigned HTTP request wrapper"]
+        end
+    end
+    
+    subgraph express["Express Helper<br/>src/auth/expressHelper.js"]
+        factory["Express middleware factory<br/>- Attach to app.use()<br/>- Validate owt cookie<br/>- Pass auth context to next"]
+    end
+    
+    deps["Dependencies<br/>- node-rest-client (HTTP)<br/>- crypto (HMAC-SHA512)<br/>- promise"]
+    
+    constructor --> public
+    public --> private
+    express --> factory
+    factory --> deps
+    private --> deps
 ```
 
 ### trustedauth-react-redux (TARAS)
 
-```
-trustedauth-react-redux/
-├── Components
-│   ├── OWAuth Component
-│   │   ├─ Props: apiKey, serverHostname, width, height,
-│   │   │         iframeOptions, mode
-│   │   ├─ Internal State
-│   │   │   └─ Redux store integration (owauth reducer)
-│   │   ├─ Render
-│   │   │   └─ Modal/iframe with authentication UI
-│   │   └─ Event Handlers
-│   │       ├─ Listen for authentication results
-│   │       ├─ Dispatch Redux actions
-│   │       └─ Handle errors
-│   │
-│   └─ Protected Routes
-│       └─ Wrapper component for auth-required routes
-│
-├── Redux Integration
-│   ├── OWAuthReducer
-│   │   ├─ Initial State
-│   │   │   {
-│   │   │     isLoggedIn: false,
-│   │   │     userProfile: null,
-│   │   │     showModal: false,
-│   │   │     error: null,
-│   │   │     config: {
-│   │   │       apiKey: null,
-│   │   │       serverHostname: null
-│   │   │     }
-│   │   │   }
-│   │   │
-│   │   └─ Handled Actions
-│   │       ├─ SET_AUTH_CONFIG
-│   │       ├─ SET_USER_PROFILE
-│   │       ├─ SET_LOGIN_STATUS
-│   │       ├─ SHOW_LOGIN
-│   │       ├─ SHOW_REGISTER
-│   │       ├─ HIDE_MODAL
-│   │       └─ SET_ERROR
-│   │
-│   ├── OWAuthMiddleware
-│   │   ├─ Parameters
-│   │   │   ├─ isApplicable: (action) => boolean
-│   │   │   ├─ profileURI: string
-│   │   │   └─ autoLogin: boolean
-│   │   │
-│   │   ├─ Processing
-│   │   │   1. Intercept actions
-│   │   │   2. Check isApplicable
-│   │   │   3. If not logged in:
-│   │   │      - Dispatch SHOW_LOGIN
-│   │   │      - Wait for authentication
-│   │   │   4. Fetch profile from profileURI
-│   │   │   5. Dispatch SET_USER_PROFILE
-│   │   │   6. Re-dispatch original action
-│   │   │
-│   │   └─ Note: Cannot be used with action creators
-│   │          that perform async work directly
-│   │          (use redux-thunk instead)
-│   │
-│   └─ Action Creators
-│       ├─ fetchUserProfile(profileURI)
-│       ├─ setUserProfile(profile)
-│       ├─ hideModal()
-│       ├─ retrieveToken()
-│       ├─ setError(message)
-│       ├─ setLoginStatus(data)
-│       ├─ showLogin()
-│       └─ showRegister()
-│
-├── Type Definitions
-│   └─ OWAuthPropType
-│       └─ PropTypes for Redux owauth state
-│
-└── Build Process
-    ├─ webpack configuration
-    └─ Produces: dist/index.js
+```mermaid
+graph TB
+    subgraph components["Components"]
+        owauth["OWAuth Component<br/>Props: apiKey, serverHostname,<br/>width, height, iframeOptions, mode<br/>Render: Modal/iframe auth UI<br/>Events: Listen for auth results,<br/>dispatch Redux actions"]
+        protected["Protected Routes<br/>Wrapper component for<br/>auth-required routes"]
+    end
+    
+    subgraph redux["Redux Integration"]
+        reducer["OWAuthReducer<br/>State: isLoggedIn, userProfile,<br/>showModal, error, config<br/>Actions: SET_AUTH_CONFIG,<br/>SET_USER_PROFILE, SET_LOGIN_STATUS,<br/>SHOW_LOGIN, SHOW_REGISTER,<br/>HIDE_MODAL, SET_ERROR"]
+        
+        middleware["OWAuthMiddleware<br/>Params: isApplicable, profileURI,<br/>autoLogin<br/>Process:<br/>1. Intercept actions<br/>2. Check isApplicable<br/>3. If not logged in: SHOW_LOGIN<br/>4. Fetch profile<br/>5. Dispatch SET_USER_PROFILE<br/>6. Re-dispatch original action"]
+        
+        actions["Action Creators<br/>fetchUserProfile(), setUserProfile(),<br/>hideModal(), retrieveToken(),<br/>setError(), setLoginStatus(),<br/>showLogin(), showRegister()"]
+    end
+    
+    subgraph types["Type Definitions"]
+        proptype["OWAuthPropType<br/>PropTypes for Redux<br/>owauth state"]
+    end
+    
+    build["Build Process<br/>webpack configuration<br/>→ dist/index.js"]
+    
+    components --> redux
+    redux --> types
+    redux --> build
 ```
 
 ### trustedauth-client (Browser Library)
 
-```
-trustedauth-client/
-├── Global API: window.owauth
-│   ├─ init()
-│   │   └─ Initialize authentication client
-│   │
-│   ├─ status()
-│   │   └─ Check current login status
-│   │
-│   └─ authorise()
-│       └─ Trigger authorization flow
-│
-├── Custom HTML Element: <ow-auth>
-│   ├─ Attributes
-│   │   ├─ apikey (required)
-│   │   ├─ onlogin (callback function name)
-│   │   ├─ mode (test|local|production)
-│   │   ├─ target (login|register|guest)
-│   │   ├─ guest (true|false - show guest option)
-│   │   ├─ guestToken (true|false)
-│   │   ├─ debug (true|false)
-│   │   └─ btnLabel (button text)
-│   │
-│   ├─ Behavior
-│   │   1. On DOMContentLoaded:
-│   │      - Find <ow-auth> elements
-│   │      - Extract attributes
-│   │      - Create iframe with login URL
-│   │      - Setup event listeners
-│   │   2. On user interaction:
-│   │      - User logs in within iframe
-│   │      - iframe posts message to parent
-│   │   3. Parent receives postMessage:
-│   │      - Extract login result
-│   │      - Call onlogin callback
-│   │      - Set OWT cookie
-│   │
-│   └─ Message Format
-│       {
-│         type: 'login'|'logout'|'register',
-│         guest: boolean,
-│         token: string (OWT)
-│       }
-│
-├── URL Construction
-│   └─ Iframe src: {domain}/auth/login?apiKey={key}&btnLabel={label}
-│      &target={target}&debug={debug}&showGuest={guest}
-│
-├── Domain Selection
-│   ├─ Production: https://www.officeworks.com.au
-│   ├─ Test: https://ofwtest.officeworks.com.au
-│   └─ Local: http://localhost:3001
-│
-├── Event Communication
-│   ├─ Parent listeners
-│   │   └─ window.addEventListener('message', handler)
-│   │
-│   ├─ Message validation
-│   │   └─ Check event.origin for security
-│   │
-│   └─ Callback invocation
-│       └─ Call window[onlogin] callback function
-│
-└── Polyfills
-    └─ Object.assign (for older browsers)
+```mermaid
+graph TB
+    subgraph globalAPI["Global API: window.owauth"]
+        init["init()<br/>Initialize auth client"]
+        status["status()<br/>Check login status"]
+        authorise["authorise()<br/>Trigger auth flow"]
+    end
+    
+    subgraph element["Custom HTML Element: &lt;ow-auth&gt;"]
+        attrs["Attributes<br/>apikey (required), onlogin,<br/>mode (test|local|prod),<br/>target (login|register|guest),<br/>guest, guestToken, debug, btnLabel"]
+        
+        behavior["Behavior<br/>1. DOMContentLoaded: find elements,<br/>extract attributes, create iframe<br/>2. User interaction: login in iframe<br/>3. postMessage: extract result,<br/>call onlogin, set OWT cookie"]
+        
+        msg["Message Format<br/>{type: login|logout|register,<br/>guest: bool, token: OWT}"]
+    end
+    
+    subgraph comms["Communication & Routing"]
+        iframeConstruct["URL Construction<br/>{domain}/auth/login?apiKey={key}&<br/>btnLabel={label}&target={target}"]
+        
+        domains["Domain Selection<br/>Production: officeworks.com.au<br/>Test: ofwtest.officeworks.com.au<br/>Local: localhost:3001"]
+        
+        events["Event Communication<br/>- window.addEventListener(message)<br/>- Validate event.origin<br/>- Call window[onlogin] callback"]
+    end
+    
+    polyfills["Polyfills<br/>Object.assign (older browsers)"]
+    
+    globalAPI --> element
+    element --> comms
+    comms --> polyfills
+    attrs --> behavior
+    behavior --> msg
+    iframeConstruct --> domains
+    domains --> events
 ```
 
 ---
