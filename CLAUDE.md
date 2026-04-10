@@ -21,7 +21,36 @@ This is a monorepo containing Officeworks' third-party authentication system, wh
 
 ## Monorepo Structure
 
-This is **not** a unified monorepo using lerna/yarn workspaces. Each package is independent with its own git repository and `npm install` requirement.
+This is **not** a unified monorepo using lerna/yarn workspaces. Each package is independent with its own git repository, managed as **git submodules** in the parent repo.
+
+### Working with Submodules
+
+**Clone with submodules:**
+```bash
+git clone --recurse-submodules git@github.com:officeworks-arunvarma/third-party-authentication.git
+```
+
+**Update submodules after initial clone:**
+```bash
+git submodule update --init --recursive
+```
+
+**Pull latest changes in all submodules:**
+```bash
+git pull --recurse-submodules
+# or
+git submodule foreach git pull origin main
+```
+
+**Push changes from a submodule back to its origin:**
+```bash
+cd <submodule-dir>
+git push origin <branch>
+cd ..
+git add <submodule-dir>
+git commit -m "Update <submodule-name> to latest"
+git push origin main
+```
 
 ### Packages
 
@@ -78,6 +107,15 @@ npm test                     # Run Mocha tests with Babel
 npm run coverage             # Generate HTML coverage report
 ```
 
+**Browser Client Library**:
+```bash
+cd trustedauth-client
+# Build minified version
+uglifyjs --compress --mangle --output authclient.min.js -- authclient.js
+# Deploy authclient.min.js, auth-sample.html to S3 bucket
+# https://console.aws.amazon.com/s3/buckets/trustedauth-client/?region=ap-southeast-2
+```
+
 ### Shared Testing Patterns
 
 - **Test Framework**: Mocha with Chai (assertions), Sinon (mocking), Mockery (module mocking)
@@ -93,6 +131,14 @@ npx mocha test/path/to/file.spec.js
 
 # For packages using Babel (react-redux, node-client)
 npx mocha --compilers js:babel-register test/path/to/file.spec.js
+```
+
+**Running tests across multiple packages**:
+```bash
+# Test all packages
+for dir in trustedauth-* user-auth-service; do
+  (cd "$dir" && npm test) || echo "Tests failed in $dir"
+done
 ```
 
 ## Architecture Patterns
@@ -135,6 +181,31 @@ X-OW-NONCE: <timestamp_or_incrementing>
 X-OW-ADMIN-KEY: <admin_key>
 ```
 
+### Browser Integration (iframe-based)
+
+The `authclient.min.js` (built from `trustedauth-client`) provides client-side auth without backend logic:
+
+1. **HTML Setup**: Include `ow-auth` custom element with attributes:
+   ```html
+   <ow-auth apikey='API_KEY' onlogin='callbackFunction' 
+            target='login|register' mode='local|test|production' guest='true'>
+     Login Button Text
+   </ow-auth>
+   <script src="https://s3-ap-southeast-2.amazonaws.com/trustedauth-client/authclient.min.js"></script>
+   ```
+
+2. **Domain Routing** (based on mode attribute):
+   - `test` → `https://ofwtest.officeworks.com.au`
+   - `local` → `http://localhost:3003`
+   - Default (production) → `https://www.officeworks.com.au`
+
+3. **Communication**: Hidden iframe posts authentication status back to parent window via `window.postMessage`
+
+4. **Available Functions** (attached to `window.owauth`):
+   - `init(params)` - Initialize with apiKey, target, debug
+   - `status()` - Check current auth status
+   - `authorise()` - Trigger login/register popup
+
 ## Key Files to Know
 
 ### trustedauth-service
@@ -157,6 +228,11 @@ X-OW-ADMIN-KEY: <admin_key>
 - `src/client.js` - Core client with request/signature methods
 - `src/middleware.js` - Express middleware for token validation
 
+### trustedauth-client
+- `authclient.js` - Source browser library (iframe-based postMessage)
+- `authclient.min.js` - Minified version deployed to S3
+- `auth-sample.html` - Example integration HTML
+
 ## Important Notes
 
 ### Deprecation Status
@@ -169,6 +245,9 @@ X-OW-ADMIN-KEY: <admin_key>
 - `trustedauth-app`: Default port 3001 (configurable)
 - `user-auth-service`: Default port 3000
 - `trustedauth-profile`: Default port (check app.js)
+- `trustedauth-client` iframe endpoints: port 3003 (local mode), 3001 (test mode)
+
+**Running multiple services locally**: Use different terminals or environment variables to override PORT. The `authclient.min.js` respects the `mode` attribute to route to the correct domain/port.
 
 ### Environment Variables
 

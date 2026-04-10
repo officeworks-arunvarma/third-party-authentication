@@ -4,7 +4,14 @@
       "Bash(git init:*)",
       "Bash(git submodule:*)",
       "Bash(echo \"submodule add returned: $?\")",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git remote:*)",
+      "Bash(git fetch:*)",
+      "Bash(ssh -T git@github.com)",
+      "Bash(git branch:*)",
+      "Bash(git push:*)",
+      "Bash(gh repo:*)"
     ]
   }
 }
