@@ -8,20 +8,23 @@ This directory contains comprehensive documentation artifacts for the Officework
 
 ## Documentation Artifacts
 
-### 1. **context.json**
-Complete system metadata in JSON format including:
-- Repository definitions and configurations
-- Data models (Trusted Party, Token, User Profile)
-- Security specifications
-- Environment configurations
-- Integration points
-- Deployment information
+### 1. **[Functional Descriptions](01-functional-descriptions.md)**
+Detailed functional specification of all system operations.
 
-**Use Case**: System integration, configuration reference, metadata consumption by tooling
+**Contents**:
+- Trusted party registration & management
+- User authentication operations
+- Token management
+- Admin operations
+- Integration points
+- Configuration management
+- Status codes and error handling
+
+**Audience**: API consumers, integration engineers, developers, testers
 
 ---
 
-### 2. **C1_CONTEXT_ARCHITECTURE.md**
+### 2. **[C1 Context Architecture](02-c1-context-architecture.md)**
 System-level context architecture diagram following C4 Model (Level 1).
 
 **Contents**:
@@ -36,7 +39,7 @@ System-level context architecture diagram following C4 Model (Level 1).
 
 ---
 
-### 3. **C2_CONTAINER_ARCHITECTURE.md**
+### 3. **[C2 Container Architecture](03-c2-container-architecture.md)**
 Container-level architecture diagram following C4 Model (Level 2).
 
 **Contents**:
@@ -55,7 +58,7 @@ Container-level architecture diagram following C4 Model (Level 2).
 
 ---
 
-### 4. **C3_COMPONENT_ARCHITECTURE.md**
+### 4. **[C3 Component Architecture](04-c3-component-architecture.md)**
 Component-level architecture diagram following C4 Model (Level 3).
 
 **Contents**:
@@ -76,7 +79,7 @@ Component-level architecture diagram following C4 Model (Level 3).
 
 ---
 
-### 5. **AUTHENTICATION_FLOWS.md**
+### 5. **[Authentication Flows](05-authentication-flows.md)**
 Detailed sequence diagrams and step-by-step flows for all authentication scenarios.
 
 **Flows Documented**:
@@ -101,8 +104,61 @@ Detailed sequence diagrams and step-by-step flows for all authentication scenari
 
 ---
 
-### 6. **FUNCTIONAL_DESCRIPTIONS.md**
-Detailed functional specification of all system operations.
+### 6. **[Repository Index](06-repository-index.md)**
+Complete index of all repositories and their contents.
+
+**Audience**: Developers, maintainers
+
+---
+
+### 7. **[Consistency Review](07-consistency-review.md)**
+Comprehensive architectural consistency review covering all aspects of the system.
+
+**Review Areas**:
+1. **Architectural Consistency** - Layering, configuration, ports, service separation
+2. **Security Consistency** - Authentication, signatures, token handling, secrets
+3. **API Design Consistency** - Endpoints, parameter naming, error responses, status codes
+4. **Data Model Consistency** - Schema design, naming, relationships, indexing
+5. **Logging and Monitoring** - Framework consistency, log levels, metrics, alerting
+6. **Testing Consistency** - Test framework, coverage, locations, CI/CD
+7. **Dependency Management** - Versions, vulnerabilities, update strategy
+8. **Deployment Consistency** - Infrastructure as Code, platforms, configuration
+
+**Audience**: Architects, tech leads, security reviewers, DevOps
+
+---
+
+### 8. **[Manifest](08-manifest.md)**
+Document manifest and metadata.
+
+**Audience**: Documentation managers, tooling
+
+---
+
+### 9. **[Quick Reference](09-quick-reference.md)**
+Quick lookup and summary reference guide.
+
+**Audience**: All roles - quick answers
+
+---
+
+### 10. **[Index](10-index.md)**
+Comprehensive navigation index and cross-reference guide.
+
+**Audience**: All roles - finding specific information
+
+---
+
+### 11. **[context.json](context.json)**
+Complete system metadata in JSON format including:
+- Repository definitions and configurations
+- Data models (Trusted Party, Token, User Profile)
+- Security specifications
+- Environment configurations
+- Integration points
+- Deployment information
+
+**Use Case**: System integration, configuration reference, metadata consumption by tooling
 
 **Contents**:
 - Trusted party registration & management
@@ -140,7 +196,7 @@ Detailed functional specification of all system operations.
 
 ---
 
-### 7. **CONSISTENCY_REVIEW.md**
+### 7. **[Consistency Review](07-consistency-review.md)**
 Comprehensive architectural consistency review covering all aspects of the system.
 
 **Review Areas**:
@@ -203,35 +259,52 @@ Comprehensive architectural consistency review covering all aspects of the syste
 
 ## How to Use This Documentation
 
+### Sequential Reading Path
+For a complete understanding, read in this order:
+1. **[Functional Descriptions](01-functional-descriptions.md)** - Understand what the system does
+2. **[C1 Context Architecture](02-c1-context-architecture.md)** - See the big picture
+3. **[C2 Container Architecture](03-c2-container-architecture.md)** - Understand service structure
+4. **[C3 Component Architecture](04-c3-component-architecture.md)** - Deep dive into code organization
+5. **[Authentication Flows](05-authentication-flows.md)** - Learn how everything works together
+6. **[Consistency Review](07-consistency-review.md)** - Understand system health and patterns
+7. Use **[Quick Reference](09-quick-reference.md)** and **[Index](10-index.md)** for lookups
+
 ### For New Team Members
-1. Start with **C1_CONTEXT_ARCHITECTURE.md** for the big picture
-2. Read **FUNCTIONAL_DESCRIPTIONS.md** for operation overview
-3. Explore **AUTHENTICATION_FLOWS.md** to understand user journeys
-4. Reference **context.json** for technical details
+1. Start with **[Functional Descriptions](01-functional-descriptions.md)** for operation overview
+2. Read **[C1 Context Architecture](02-c1-context-architecture.md)** for the big picture
+3. Explore **[Authentication Flows](05-authentication-flows.md)** to understand user journeys
+4. Check **[Quick Reference](09-quick-reference.md)** for common questions
+5. Reference **[context.json](context.json)** for technical details
 
 ### For Integration Engineers
-1. Check **FUNCTIONAL_DESCRIPTIONS.md** for your use case
-2. Review **AUTHENTICATION_FLOWS.md** for your flow
-3. Consult **C3_COMPONENT_ARCHITECTURE.md** for library details
-4. Use **context.json** for endpoint/configuration reference
+1. Check **[Functional Descriptions](01-functional-descriptions.md)** for your use case
+2. Review **[Authentication Flows](05-authentication-flows.md)** for your flow
+3. Consult **[C3 Component Architecture](04-c3-component-architecture.md)** for library details
+4. Use **[Quick Reference](09-quick-reference.md)** for integration patterns
+5. Reference **[context.json](context.json)** for endpoint/configuration details
 
 ### For Developers
-1. Read **C3_COMPONENT_ARCHITECTURE.md** for code organization
-2. Review relevant flow in **AUTHENTICATION_FLOWS.md**
-3. Check **CONSISTENCY_REVIEW.md** for patterns and best practices
-4. Reference **context.json** for data models
+1. Read **[C2 Container Architecture](03-c2-container-architecture.md)** for service organization
+2. Study **[C3 Component Architecture](04-c3-component-architecture.md)** for code structure
+3. Review relevant flow in **[Authentication Flows](05-authentication-flows.md)**
+4. Check **[Repository Index](06-repository-index.md)** for file locations
+5. Consult **[Consistency Review](07-consistency-review.md)** for patterns and best practices
+6. Reference **[context.json](context.json)** for data models and configuration
 
 ### For Architects/Tech Leads
-1. Start with **C1_CONTEXT_ARCHITECTURE.md**
-2. Deep dive with **C2_CONTAINER_ARCHITECTURE.md**
-3. Review **CONSISTENCY_REVIEW.md** for system health
-4. Check **context.json** for infrastructure details
+1. Start with **[C1 Context Architecture](02-c1-context-architecture.md)**
+2. Deep dive with **[C2 Container Architecture](03-c2-container-architecture.md)**
+3. Review components in **[C3 Component Architecture](04-c3-component-architecture.md)**
+4. Assess **[Consistency Review](07-consistency-review.md)** for system health
+5. Check **[Index](10-index.md)** for cross-references across topics
+6. Reference **[context.json](context.json)** for infrastructure details
 
 ### For Security Reviews
-1. Read **CONSISTENCY_REVIEW.md** section 2 (Security Consistency)
-2. Review authentication mechanisms in **C2_CONTAINER_ARCHITECTURE.md**
-3. Check **FUNCTIONAL_DESCRIPTIONS.md** for sensitive operations
-4. Consult **context.json** for security specifications
+1. Read **[Consistency Review](07-consistency-review.md)** section 2 (Security Consistency)
+2. Review authentication mechanisms in **[C2 Container Architecture](03-c2-container-architecture.md)**
+3. Check **[Functional Descriptions](01-functional-descriptions.md)** for sensitive operations
+4. Deep dive in **[C3 Component Architecture](04-c3-component-architecture.md)** for implementation details
+5. Consult **[context.json](context.json)** for security specifications
 
 ---
 
@@ -337,7 +410,7 @@ Third-party applications that integrate with the system. Each party has:
 - Limited monitoring/metrics
 - Error message information leakage
 
-**See CONSISTENCY_REVIEW.md for detailed security assessment**
+**See [Consistency Review](07-consistency-review.md) for detailed security assessment**
 
 ---
 
@@ -377,22 +450,22 @@ Third-party applications that integrate with the system. Each party has:
 ### Common Tasks
 
 #### I need to integrate my app
-→ Start with FUNCTIONAL_DESCRIPTIONS.md, then AUTHENTICATION_FLOWS.md
+→ Start with [Functional Descriptions](01-functional-descriptions.md), then [Authentication Flows](05-authentication-flows.md)
 
 #### I need to understand the code
-→ Read C3_COMPONENT_ARCHITECTURE.md
+→ Read [C3 Component Architecture](04-c3-component-architecture.md)
 
 #### I'm reviewing security
-→ Check CONSISTENCY_REVIEW.md section 2
+→ Check [Consistency Review](07-consistency-review.md) section 2
 
 #### I need deployment info
-→ See context.json under "deployment"
+→ See [context.json](context.json) under "deployment"
 
 #### I need data models
-→ See context.json under "data_models" or C3_COMPONENT_ARCHITECTURE.md
+→ See [context.json](context.json) under "data_models" or [C3 Component Architecture](04-c3-component-architecture.md)
 
 #### I need API endpoints
-→ See FUNCTIONAL_DESCRIPTIONS.md or context.json under "repositories"
+→ See [Functional Descriptions](01-functional-descriptions.md) or [context.json](context.json) under "repositories"
 
 ---
 
@@ -415,20 +488,20 @@ Third-party applications that integrate with the system. Each party has:
 ## Navigation
 
 ### By Audience
-- [Architects](./C1_CONTEXT_ARCHITECTURE.md)
-- [Backend Developers](./C2_CONTAINER_ARCHITECTURE.md)
-- [Integration Engineers](./FUNCTIONAL_DESCRIPTIONS.md)
-- [Code Reviewers](./C3_COMPONENT_ARCHITECTURE.md)
-- [QA/Testing](./AUTHENTICATION_FLOWS.md)
-- [Security](./CONSISTENCY_REVIEW.md)
+- [Architects](./02-c1-context-architecture.md)
+- [Backend Developers](./03-c2-container-architecture.md)
+- [Integration Engineers](./01-functional-descriptions.md)
+- [Code Reviewers](./04-c3-component-architecture.md)
+- [QA/Testing](./05-authentication-flows.md)
+- [Security](./07-consistency-review.md)
 
 ### By Topic
-- [Architecture](./C1_CONTEXT_ARCHITECTURE.md)
-- [Services](./C2_CONTAINER_ARCHITECTURE.md)
-- [Components](./C3_COMPONENT_ARCHITECTURE.md)
-- [Operations](./FUNCTIONAL_DESCRIPTIONS.md)
-- [Flows](./AUTHENTICATION_FLOWS.md)
-- [Quality](./CONSISTENCY_REVIEW.md)
+- [Architecture](./02-c1-context-architecture.md)
+- [Services](./03-c2-container-architecture.md)
+- [Components](./04-c3-component-architecture.md)
+- [Operations](./01-functional-descriptions.md)
+- [Flows](./05-authentication-flows.md)
+- [Quality](./07-consistency-review.md)
 - [Metadata](./context.json)
 
 ---
